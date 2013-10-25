@@ -1,0 +1,405 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+
+import os, sys, shutil, subprocess, collections, time
+
+class OrigFile():
+	def __init__(self, inode1,inode2, path,type,date):
+		self.path = path
+		self.i1 = inode1
+		self.i2 = inode2
+		self.date = date
+		self.type = type
+
+# http://stackoverflow.com/questions/9237246/python-how-to-read-file-with-nul-delimited-lines
+# http://bugs.python.org/issue1152248
+def fileLineIter(inputFile,
+                 inputNewline="\n",
+                 outputNewline=None,
+                 readSize=8192):
+   """Like the normal file iter but you can set what string indicates newline.
+
+   The newline string can be arbitrarily long; it need not be restricted to a
+   single character. You can also set the read size and control whether or not
+   the newline string is left on the end of the iterated lines.  Setting
+   newline to '\0' is particularly good for use with an input file created with
+   something like "os.popen('find -print0')".
+   """
+   if outputNewline is None: outputNewline = inputNewline
+   partialLine = ''
+   while True:
+       charsJustRead = inputFile.read(readSize)
+       if not charsJustRead: break
+       partialLine += charsJustRead
+       lines = partialLine.split(inputNewline)
+       partialLine = lines.pop()
+       for line in lines: yield line + outputNewline.rstrip('\0') # little mod
+   if partialLine: yield partialLine.rstrip('\0') # little mod
+
+# snap format: inode, path, type, date
+def make_snapshot(dir1name, dir2name):
+	subprocess.check_call([ "find", dir1name, "-fprintf", dir1name+"/.snap", "%i\\0%P\\0%y\\0%T@\\0" ])
+	subprocess.check_call([ "find", dir2name, "-fprintf", dir2name+"/.snap", "%i\\0%P\\0%y\\0%T@\\0" ])
+
+def get_find_fd(dirname):
+	return subprocess.Popen([ "find", dirname, "-printf", "%i\\0%P\\0%y\\0%T@\\0"], stdout=subprocess.PIPE, universal_newlines=True).stdout
+
+def load_orig(dir1name, dir2name):
+	orig = []
+
+	if os.path.isfile(dir1name+"/.snap") and os.path.isfile(dir2name+"/.snap"):
+		fd1 = open(dir1name+"/.snap", "r")
+		fd2 = open(dir2name+"/.snap", "r")
+		gen1 = fileLineIter(fd1, inputNewline='\0')
+		gen2 = fileLineIter(fd2, inputNewline='\0')
+
+		while True:
+			i1=p1=t1=d1 = i2=p2=t2=d2=None
+			try:
+				i1,p1,t1,d1 = next(gen1),next(gen1),next(gen1),next(gen1)
+				i2,p2,t2,d2 = next(gen2),next(gen2),next(gen2),next(gen2)
+			except StopIteration:
+				# if all values are empty in the same time: ok, we reached
+				# end of files 
+				if ( i1==None and p1==None and t1==None and d1==None
+				 and i2==None and p2==None and t2==None and d2==None ):
+					break
+				else:
+					sys.exit("Error: .snap filelists not coherent")
+
+			if p1!=".snap":
+				# ignore dates for dirs
+				if t1=="d": d1="0"
+				if t2=="d": d2="0"
+				if p1!=p2 or t1!=t2 or d1!=d2:
+					sys.exit("Error: difference in .snap for path: '"+p1+"'")
+
+				orig.append( OrigFile(i1,i2, p1,t1,d1) )
+
+		fd1.close()
+		fd2.close()
+
+	return orig
+
+class DirFile():
+	def __init__(self, inode, type, date):
+		self.i = inode
+		self.type = type
+		self.date = date
+
+def load_dir(dirname):
+	dir = collections.OrderedDict()
+
+	fd = get_find_fd(dirname)
+	gen1 = fileLineIter(fd, inputNewline='\0')
+
+	while True:
+		i1=p1=t1=d1=None
+		try:
+			i1,p1,t1,d1 = next(gen1),next(gen1),next(gen1),next(gen1)
+		except StopIteration:
+			if i1==None and p1==None and t1==None and d1==None:
+				break
+			else:
+				sys.exit("Error: problem in find output")
+
+		if p1!=".snap":
+			if t1=="d": d1="0"
+			dir[p1] = DirFile(i1, t1, d1)
+	
+	fd.close()
+	
+	return dir
+
+def ask_conflict(f1, f2, path):
+	p1=p2=""
+	if f1 != None:
+		d1 = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime( int(f1.date.split(".")[0]) ))
+		p1 = path+" ("+d1+")"
+	if f2 != None:
+		d2 = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime( int(f2.date.split(".")[0]) ))
+		p2 = path+" ("+d2+")"
+	print_action("conflict", p1, "???", p2)
+	resp = "invalid"
+	while resp != "1" and resp != "2":
+		resp = input("File to keep [1|2]: ")
+	return resp
+
+def remove(path):
+	global realrun
+	if not realrun: return
+
+	os.remove(path)
+
+#### file actions
+def removedir(path):
+	global realrun
+	if not realrun: return
+	try:
+		os.rmdir(path)
+	except OSError as e:
+		print("Warning: "+str(e))
+
+def mkdir(path):
+	global realrun
+	if not realrun: return
+	os.mkdir(path)
+
+def sync(p1, p2):
+	# possible cases with files/dirs : d>d d>f f>f f>d d>_ f>_
+	# d>d rien
+	# d>f rm p2, mkdir p2
+	# f>f copy2 p1 p2
+	# f>d rmdir p2, copy2 p1 p2
+	# d>_ mkdir p2
+	# f>_ copy2 p1 p2
+	global realrun
+	if not realrun: return
+		
+	if os.path.isdir(p1):
+		if not os.path.isdir(p2):
+			if os.path.exists(p2):
+				os.remove(p2)
+			os.makedirs(p2)
+	else: #p1 is a file (maybe not a regular file)
+		if os.path.isdir(p2):
+			try:
+				os.rmdir(p2) # fails when dir not empty
+			except OSError as e:
+				print("Warning: "+str(e))
+				return
+		
+		d = os.path.dirname(p2)
+		if not os.path.isdir(d):
+			os.makedirs(d)
+
+		shutil.copy2(p1, p2)
+
+def move(src, dst):
+	global realrun
+	if not realrun: return
+	os.rename(src, dst)
+
+def print_action(action, path1, arrow, path2):
+	print( path1.ljust(30) +" "+arrow+"  "+ path2.ljust(30) +"("+action+")" )
+
+def print_files(fo, f1, f2):
+	return
+	print("%s: i:%s d:%s | i:%s d:%s (orig)" % (fo.path, fo.i1, fo.date, fo.i2, fo.date))
+	f1str = f1str = "i:"+f1.i+" d:"+str(f1.date) if f1!=None else ""
+	f2str = f2str = "i:"+f2.i+" d:"+str(f2.date) if f2!=None else ""
+	print("%s: %s | %s" % (fo.path, f1str, f2str))
+
+def print_files12(path, f1, f2):
+	return
+	f1str = f1str = "i:"+f1.i+" d:"+str(f1.date) if f1!=None else ""
+	f2str = f2str = "i:"+f2.i+" d:"+str(f2.date) if f2!=None else ""
+	print("%s: %s | %s" % (path, f1str, f2str))
+
+##############
+if len(sys.argv) != 4:
+	print("Syntax: "+sys.argv[0]+" DIR1 DIR2 -rn")
+	sys.exit()
+
+dir1name = sys.argv[1]
+dir2name = sys.argv[2]
+realrun = True if sys.argv[3] == "-r" else False
+
+origlist = load_orig(dir1name, dir2name)
+
+dir1 = load_dir(dir1name)
+dir2 = load_dir(dir2name)
+
+mkdir1 = []
+mkdir2 = []
+rmdirs1 = []
+rmdirs2 = []
+rm1 = collections.OrderedDict()
+rm2 = collections.OrderedDict()
+copy12 = []
+copy21 = []
+sync12 = []
+sync21 = []
+
+# process all paths from snapshot
+for fo in origlist:
+	# f1==None f2==None				deleted both sides
+	# f1==None f2=!None f2.d==fo.d			f1 chg only
+	# f1==None f2=!None f2.d!=fo.d			conflict
+	# f1!=None f2==None f1.d==fo.d			f2 chg only
+	# f1!=None f2==None f1.d!=fo.d			conflict
+	# f1!=None f2!=None f1.d==fo.d f2.d==fo.d	no change
+	# f1!=None f2!=None f1.d==fo.d f2.d!=fo.d	f2 chg only
+	# f1!=None f2!=None f1.d!=fo.d f2.d==fo.d	f1 chg only
+	# f1!=None f2!=None f1.d!=fo.d f2.d!=fo.d	conflict
+
+	path = fo.path
+	
+	f1 = dir1[path] if path in dir1 else None
+	f2 = dir2[path] if path in dir2 else None
+
+	print_files(fo, f1, f2)
+
+	if f1 == None and f2 == None:
+		# deleted both sides --> nothing to do
+		pass
+	elif f1 != None and f2 != None and f1.date == f2.date:
+		# same file contents --> nothing to do
+		pass
+	elif f2 != None and f2.date == fo.date:
+		# no f2 change --> f1 change only
+		if f1 == None:
+			# f1 deleted --> delete f2
+			if f2.date == "0": # f2 isdir
+				rmdirs2.append(path)
+			else:
+				rm2[f2.date] = path
+		else:
+			# f1 != None and f1 != fo.date --> f1 mod --> mod f2
+			sync12.append(path)
+	elif f1 != None and f1.date == fo.date:
+		# no f1 change --> f2 change only
+		if f2 == None:
+			if f1.date == "0": #f1 isdir
+				rmdirs1.append(path)
+			else:
+				rm1[f1.date] = path
+		else:
+			sync21.append(path)
+	else:
+		# f1 change and f2 change --> confict
+		# f1 != None and f2 != None --> f1.date != f2.date (!= fo.date)
+		# f1 == None and f2 != None
+		# f1 != None and f2 == None
+
+		tokeep = ask_conflict(f1, f2, path);
+		if tokeep == "1":
+			if f1 == None:
+				if f2.date == "0": # f2 isdir
+					rmdirs2.append(path)
+				else:
+					rm2[f2.date] = path
+			else:
+				if f2 == None:
+					if f1.date == "0":
+						mkdir2.append(path)
+					else:
+						copy12.append( (path, f1.date) )
+				else:
+					sync12.append(path)
+		else: # tokeep == 2
+			if f2 == None:
+				if f1.date == "0": # f1 isdir
+					rmdirs1.append(path)
+				else:
+					rm1[f1.date] = path
+			else:
+				if f1 == None:
+					if f2.date == "0":
+						mkdir1.append(path)
+					else:
+						copy21.append( (path, f2.date) )
+				else:
+					sync21.append(path)
+	#ifend
+
+	dir1.pop(path, None)
+	dir2.pop(path, None)
+#forend
+
+# process new paths in dir1
+for path, f1 in dir1.items():
+	f2 = dir2[path] if path in dir2 else None
+
+	print_files12(path, f1, f2)
+	
+	if f2 != None and f2.date == f1.date:
+		# f1 and f2 added but same files --> nothing to do
+		pass
+	elif f2 == None:
+		# adding in d2
+		if f1.date == "0":
+			mkdir2.append(path)
+		else:
+			copy12.append( (path, f1.date) )
+	else:
+		# f2!=None and f2.date != f1.date --> conflict
+		tokeep = ask_conflict(f1, f2, path);
+		if tokeep == "1":
+			sync12.append(path)
+		else: # tokeep == 2
+			sync21.append(path)
+
+	dir2.pop(path, None)
+
+# process remaining new paths in dir2
+for path, f2 in dir2.items():
+	f1 = dir1[path] if path in dir1 else None
+
+	print_files12(path, f1, f2)
+	
+	if f1 != None and f1.date == f2.date:
+		pass
+	elif f1 == None:
+		if f2.date == "0":
+			mkdir1.append(path)
+		else:
+			copy21.append( (path, f2.date) )
+	else:
+		tokeep = ask_conflict(f1, f2, path);
+		if tokeep == "1":
+			sync12.append(path)
+		else: # tokeep == 2
+			sync21.append(path)
+
+# ACTION!
+
+for path in mkdir2:
+	print_action("mkdir", path+"/", "-->", "")
+	mkdir(dir2name+"/"+path)
+for path in mkdir1:
+	print_action("mkdir", "", "<--", path+"/")
+	mkdir(dir1name+"/"+path)
+
+for path, date in copy12:
+	srcpath = rm2.pop(date, None) # check if we can use a move
+	if srcpath == None:
+		print_action("copy", path, "-->", "")
+		sync(dir1name+"/"+path, dir2name+"/"+path)
+	else:	
+		print_action("move", path, "-->", "from:"+srcpath)
+		move(dir2name+"/"+srcpath, dir2name+"/"+path)
+for path, date in copy21:
+	srcpath = rm1.pop(date, None) # check if we can use a move
+	if srcpath == None:
+		print_action("copy", "", "<--", path)
+		sync(dir2name+"/"+path, dir1name+"/"+path)
+	else:
+		print_action("move", "from:"+srcpath, "<--", path)
+		move(dir1name+"/"+srcpath, dir1name+"/"+path)
+	
+for path in sync12:
+	print_action("sync", path, "-->", path)
+	sync(dir1name+"/"+path, dir2name+"/"+path)
+for path in sync21:
+	print_action("sync", path, "<--", path)
+	sync(dir2name+"/"+path, dir1name+"/"+path)
+
+for date, path in rm1.items():
+	print_action("rm", path, "<--", "")
+	remove(dir1name+"/"+path)
+for date, path in rm2.items():
+	print_action("rm", "", "-->", path)
+	remove(dir2name+"/"+path)
+
+rmdirs1.sort(reverse=True)
+rmdirs2.sort(reverse=True)
+for path in rmdirs1:
+	print_action("rmdir", path, "<--", "")
+	removedir(dir1name+"/"+path)
+for path in rmdirs2:
+	print_action("rmdir", "", "-->", path)
+	removedir(dir2name+"/"+path)
+
+if realrun:
+	make_snapshot(dir1name, dir2name)
