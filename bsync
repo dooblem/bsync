@@ -36,61 +36,102 @@ def fileLineIter(inputFile,
        for line in lines: yield line + outputNewline.rstrip('\0') # little mod
    if partialLine: yield partialLine.rstrip('\0') # little mod
 
+def ssh_master_init(sshlogin):
+	import tempfile, atexit
+	tmpdir = tempfile.mkdtemp()
+	sshsock = os.path.join(tmpdir, "bsync_%r@%h:%p")
+	atexit.register(ssh_master_clean, tmpdir, sshsock, sshlogin)
+	subprocess.check_call(["ssh", "-fNMS", sshsock, sshlogin])
+	return sshsock
+
+def ssh_master_clean(tmpdir, sshsock, sshlogin):
+	# send exit signal to ssh master, this will remove the socket
+	subprocess.call(["ssh", "-S", sshsock, "-Oexit", sshlogin])
+	os.rmdir(tmpdir) # remove tmpdir (should be empty)
+
+findformat = "%i\\0%P\\0%y\\0%T@\\0"
+
 # snap format: inode, path, type, date
 def make_snapshot(dir1name, dir2name):
-	subprocess.check_call([ "find", dir1name, "-fprintf", dir1name+"/.snap", "%i\\0%P\\0%y\\0%T@\\0" ])
-	subprocess.check_call([ "find", dir2name, "-fprintf", dir2name+"/.snap", "%i\\0%P\\0%y\\0%T@\\0" ])
+	global findformat
+	subprocess.check_call([ "find", dir1name, "-fprintf", dir1name+"/.snap", findformat ])
+	subprocess.check_call([ "find", dir2name, "-fprintf", dir2name+"/.snap", findformat ])
 
-def get_find_fd(dirname):
-	return subprocess.Popen([ "find", dirname, "-printf", "%i\\0%P\\0%y\\0%T@\\0"], stdout=subprocess.PIPE, universal_newlines=True).stdout
+def get_find_fd(sshsock, sshlogin, dirname):
+	global findformat
+	if sshlogin==None:
+		return subprocess.Popen([ "find", dirname, "-printf", findformat ], stdout=subprocess.PIPE, universal_newlines=True).stdout
+	else:
+		#print(subprocess.Popen([ "ssh", "-S"+sshsock, sshlogin, "find "+dirname+" -printf "+findformat ], stdout=subprocess.PIPE, universal_newlines=True).communicate()[0])
+		return subprocess.Popen([ "ssh", "-S"+sshsock, sshlogin, "find "+dirname+" -printf '"+findformat+"'" ], stdout=subprocess.PIPE, universal_newlines=True).stdout
 
-def load_orig(dir1name, dir2name):
+def get_snap_fd(sshsock, sshlogin, dirname):
+	if sshlogin==None:
+		if os.path.isfile(dirname+"/.snap"):
+			return open(dirname+"/.snap", "r")
+		else:
+			return None
+	else:
+		if subprocess.call([ "ssh", "-S"+sshsock, sshlogin, "test -f "+dirname+"/.snap"]) == 0:
+			return subprocess.Popen([ "ssh", "-S"+sshsock, sshlogin, "cat "+dirname+"/.snap" ], stdout=subprocess.PIPE, universal_newlines=True).stdout
+		else:
+			return None
+
+def load_orig(sshsock, sshlogin1,dir1name, sshlogin2,dir2name):
+
+	fd1 = get_snap_fd(sshsock, sshlogin1, dir1name)
+	fd2 = get_snap_fd(sshsock, sshlogin2, dir2name)
+	#print(fd1)
+	#print(fd2)
+
+	if fd1==None or fd2==None:
+		return []
+
+	gen1 = fileLineIter(fd1, inputNewline='\0')
+	gen2 = fileLineIter(fd2, inputNewline='\0')
+
 	orig = []
 
-	if os.path.isfile(dir1name+"/.snap") and os.path.isfile(dir2name+"/.snap"):
-		fd1 = open(dir1name+"/.snap", "r")
-		fd2 = open(dir2name+"/.snap", "r")
-		gen1 = fileLineIter(fd1, inputNewline='\0')
-		gen2 = fileLineIter(fd2, inputNewline='\0')
+	while True:
+		i1=p1=t1=d1 = i2=p2=t2=d2=None
+		try:
+			i1,p1,t1,d1 = next(gen1),next(gen1),next(gen1),next(gen1)
+			i2,p2,t2,d2 = next(gen2),next(gen2),next(gen2),next(gen2)
+		except StopIteration:
+			# if all values are empty in the same time: ok, we reached
+			# end of files 
+			if ( i1==None and p1==None and t1==None and d1==None
+			 and i2==None and p2==None and t2==None and d2==None ):
+				break
+			else:
+				sys.exit("Error: .snap filelists not coherent")
 
-		while True:
-			i1=p1=t1=d1 = i2=p2=t2=d2=None
-			try:
-				i1,p1,t1,d1 = next(gen1),next(gen1),next(gen1),next(gen1)
-				i2,p2,t2,d2 = next(gen2),next(gen2),next(gen2),next(gen2)
-			except StopIteration:
-				# if all values are empty in the same time: ok, we reached
-				# end of files 
-				if ( i1==None and p1==None and t1==None and d1==None
-				 and i2==None and p2==None and t2==None and d2==None ):
-					break
-				else:
-					sys.exit("Error: .snap filelists not coherent")
+		if p1!=".snap":
+			# ignore dates for dirs
+			if t1=="d": d1="0"
+			if t2=="d": d2="0"
+			if p1!=p2 or t1!=t2 or d1!=d2:
+				sys.exit("Error: difference in .snap for path: '"+p1+"'")
 
-			if p1!=".snap":
-				# ignore dates for dirs
-				if t1=="d": d1="0"
-				if t2=="d": d2="0"
-				if p1!=p2 or t1!=t2 or d1!=d2:
-					sys.exit("Error: difference in .snap for path: '"+p1+"'")
+			orig.append( OrigFile(i1,i2, p1,t1,d1) )
 
-				orig.append( OrigFile(i1,i2, p1,t1,d1) )
-
-		fd1.close()
-		fd2.close()
+	fd1.close()
+	fd2.close()
 
 	return orig
 
 class DirFile():
-	def __init__(self, inode, type, date):
+	def __init__(self, inode, path, type, date):
 		self.i = inode
+		self.path = path
 		self.type = type
 		self.date = date
 
-def load_dir(dirname):
+def load_dir(sshsock, sshlogin, dirname):
 	dir = collections.OrderedDict()
 
-	fd = get_find_fd(dirname)
+	fd = get_find_fd(sshsock, sshlogin, dirname)
+
 	gen1 = fileLineIter(fd, inputNewline='\0')
 
 	while True:
@@ -105,7 +146,7 @@ def load_dir(dirname):
 
 		if p1!=".snap":
 			if t1=="d": d1="0"
-			dir[p1] = DirFile(i1, t1, d1)
+			dir[p1] = DirFile(i1, p1, t1, d1)
 	
 	fd.close()
 	
@@ -198,17 +239,35 @@ def print_files12(path, f1, f2):
 
 ##############
 if len(sys.argv) != 4:
-	print("Syntax: "+sys.argv[0]+" DIR1 DIR2 -rn")
-	sys.exit()
+	sys.exit("Syntax: "+sys.argv[0]+" DIR1 DIR2 -rn")
 
 dir1name = sys.argv[1]
 dir2name = sys.argv[2]
 realrun = True if sys.argv[3] == "-r" else False
 
-origlist = load_orig(dir1name, dir2name)
+# get sshlogin vars
+sshlogin1 = sshlogin2 = None
+if ':' in dir1name:
+	sshlogin1, dir1name = dir1name.split(':', 1)
+if ':' in dir2name:
+	sshlogin2, dir2name = dir2name.split(':', 1)
+if sshlogin1!=None and sshlogin2!=None:
+	sys.exit("Error: only one remote directory supported.")
 
-dir1 = load_dir(dir1name)
-dir2 = load_dir(dir2name)
+sshsock = None
+if sshlogin1!=None or sshlogin2!=None:
+	sshlogin = sshlogin1 if sshlogin1!=None else sshlogin2
+	sshsock = ssh_master_init(sshlogin)
+
+origlist = load_orig(sshsock, sshlogin1,dir1name, sshlogin2,dir2name)
+
+if origlist == []:
+	print("Warning: could not find .snap files. Starting from empty history.")
+
+#print(origlist)
+
+dir1 = load_dir(sshsock, sshlogin1, dir1name)
+dir2 = load_dir(sshsock, sshlogin2, dir2name)
 
 mkdir1 = []
 mkdir2 = []
@@ -253,7 +312,7 @@ for fo in origlist:
 			if f2.date == "0": # f2 isdir
 				rmdirs2.append(path)
 			else:
-				rm2[f2.date] = path
+				rm2[fo.i1] = f2
 		else:
 			# f1 != None and f1 != fo.date --> f1 mod --> mod f2
 			sync12.append(path)
@@ -263,7 +322,7 @@ for fo in origlist:
 			if f1.date == "0": #f1 isdir
 				rmdirs1.append(path)
 			else:
-				rm1[f1.date] = path
+				rm1[fo.i2] = f1
 		else:
 			sync21.append(path)
 	else:
@@ -278,13 +337,13 @@ for fo in origlist:
 				if f2.date == "0": # f2 isdir
 					rmdirs2.append(path)
 				else:
-					rm2[f2.date] = path
+					rm2[fo.i1] = f2
 			else:
 				if f2 == None:
 					if f1.date == "0":
 						mkdir2.append(path)
 					else:
-						copy12.append( (path, f1.date) )
+						copy12.append(f1)
 				else:
 					sync12.append(path)
 		else: # tokeep == 2
@@ -292,13 +351,13 @@ for fo in origlist:
 				if f1.date == "0": # f1 isdir
 					rmdirs1.append(path)
 				else:
-					rm1[f1.date] = path
+					rm1[fo.i2] = f1
 			else:
 				if f1 == None:
 					if f2.date == "0":
 						mkdir1.append(path)
 					else:
-						copy21.append( (path, f2.date) )
+						copy21.append(f2)
 				else:
 					sync21.append(path)
 	#ifend
@@ -321,7 +380,7 @@ for path, f1 in dir1.items():
 		if f1.date == "0":
 			mkdir2.append(path)
 		else:
-			copy12.append( (path, f1.date) )
+			copy12.append(f1)
 	else:
 		# f2!=None and f2.date != f1.date --> conflict
 		tokeep = ask_conflict(f1, f2, path);
@@ -344,7 +403,7 @@ for path, f2 in dir2.items():
 		if f2.date == "0":
 			mkdir1.append(path)
 		else:
-			copy21.append( (path, f2.date) )
+			copy21.append(f2)
 	else:
 		tokeep = ask_conflict(f1, f2, path);
 		if tokeep == "1":
@@ -354,56 +413,86 @@ for path, f2 in dir2.items():
 
 # ACTION!
 
+####################
+# ACTIONS in dir2
+
 # mkdirs must be done before
 for path in mkdir2:
 	print_action("mkdir", path+"/", "-->", "")
 	mkdir(dir2name+"/"+path)
+
+# check if we can move, else copy
+copyreal12 = []
+for f1 in copy12:
+	# we must copy f1 to dir2
+	# to use a move: search for f1 inode
+	# f1.i == fo.i1 <> fo.i2 == f2.i
+	f2src = rm2.pop(f1.i, None) # check if we can use a move
+
+	# check date to be sure that no change on file. TODO check size also
+	if f2src != None and f2src.date == f1.date:
+		print_action("move", f1.path, "-->", "from:"+f2src.path)
+		move(dir2name+"/"+f2src.path, dir2name+"/"+f1.path)
+	else:	
+		copyreal12.append(f1.path)
+# removes, after the check moves step
+for f in rm2.values():
+	print_action("rm", "", "-->", f.path)
+	remove(dir2name+"/"+f.path)
+
+# rmdirs must be done after
+rmdirs2.sort(reverse=True)
+for path in rmdirs2:
+	print_action("rmdir", "", "-->", path)
+	removedir(dir2name+"/"+path)
+
+# finish with copy and sync
+for path in copyreal12:
+	print_action("copy", path, "-->", "")
+	sync(dir1name+"/"+path, dir2name+"/"+path)
+for path in sync12:
+	print_action("sync", path, "-->", path)
+	sync(dir1name+"/"+path, dir2name+"/"+path)
+
+####################
+# ACTIONS in dir1
+
+# mkdirs must be done before
 for path in mkdir1:
 	print_action("mkdir", "", "<--", path+"/")
 	mkdir(dir1name+"/"+path)
 
-for path, date in copy12:
-	srcpath = rm2.pop(date, None) # check if we can use a move
-	if srcpath == None:
-		print_action("copy", path, "-->", "")
-		sync(dir1name+"/"+path, dir2name+"/"+path)
+# check if we can move, else copy
+copyreal21 = []
+for f2 in copy21:
+	f1src = rm1.pop(f2.i, None) # check if we can use a move
+	# check date to be sure that no change on file. TODO check size also
+	if f1src != None and f1src.date == f2.date:
+		print_action("move", "from:"+f1src.path, "<--", f2.path)
+		move(dir1name+"/"+f1src.path, dir1name+"/"+f2.path)
 	else:	
-		print_action("move", path, "-->", "from:"+srcpath)
-		move(dir2name+"/"+srcpath, dir2name+"/"+path)
-for path, date in copy21:
-	srcpath = rm1.pop(date, None) # check if we can use a move
-	if srcpath == None:
-		print_action("copy", "", "<--", path)
-		sync(dir2name+"/"+path, dir1name+"/"+path)
-	else:
-		print_action("move", "from:"+srcpath, "<--", path)
-		move(dir1name+"/"+srcpath, dir1name+"/"+path)
-	
-for path in sync12:
-	print_action("sync", path, "-->", path)
-	sync(dir1name+"/"+path, dir2name+"/"+path)
+		copyreal21.append(f2.path)
+# removes, after the check moves step
+for f in rm1.values():
+	print_action("rm", f.path, "<--", "")
+	remove(dir1name+"/"+f.path)
+
+# rmdirs must be done after
+rmdirs1.sort(reverse=True)
+for path in rmdirs1:
+	print_action("rmdir", path, "<--", "")
+	removedir(dir1name+"/"+path)
+
+# finish with copy and sync
+for path in copyreal21:
+	print_action("copy", "", "<--", path)
+	sync(dir2name+"/"+path, dir1name+"/"+path)
 for path in sync21:
 	print_action("sync", path, "<--", path)
 	sync(dir2name+"/"+path, dir1name+"/"+path)
 
-# removes, after the copy steps
-for date, path in rm1.items():
-	print_action("rm", path, "<--", "")
-	remove(dir1name+"/"+path)
-for date, path in rm2.items():
-	print_action("rm", "", "-->", path)
-	remove(dir2name+"/"+path)
 
-
-# rmdirs must be done after
-rmdirs1.sort(reverse=True)
-rmdirs2.sort(reverse=True)
-for path in rmdirs1:
-	print_action("rmdir", path, "<--", "")
-	removedir(dir1name+"/"+path)
-for path in rmdirs2:
-	print_action("rmdir", "", "-->", path)
-	removedir(dir2name+"/"+path)
+#===========
 
 if realrun:
 	make_snapshot(dir1name, dir2name)
