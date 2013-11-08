@@ -68,6 +68,7 @@ def ssh_master_init(sshlogin):
 
 def ssh_master_clean(tmpdir, sshsock, sshlogin):
 	# send exit signal to ssh master, this will remove the socket
+	print("Cleaning SSH master...")
 	subprocess.call(["ssh", "-S", sshsock, "-Oexit", sshlogin])
 	try:
 		os.rmdir(tmpdir) # remove tmpdir (should be empty)
@@ -368,7 +369,13 @@ def rsync(rsyncproc, path):
 	rsyncproc.stdin.flush()
 
 def print_action(action, path1, arrow, path2):
-	print( path1.ljust(30) +" "+arrow+"  "+ path2.ljust(30) +" ("+action+")" )
+	global console_width
+
+	w = 0
+	if console_width != 0:
+		w = (console_width -1-3-2 -2-9-1) // 2
+	
+	print( path1.ljust(w) +" "+arrow+"  "+ path2.ljust(w) +" ("+action+")" )
 
 def print_files(fo, f1, f2):
 	return
@@ -489,6 +496,13 @@ if len(sys.argv) != 4:
 dir1name = sys.argv[1]
 dir2name = sys.argv[2]
 realrun = True if sys.argv[3] == "-r" else False
+
+# try to get console width, for displaying actions, if running interactive
+try:
+	height, width = subprocess.check_output(['stty', 'size'], universal_newlines=True, stderr=subprocess.DEVNULL).split()
+	console_width = int(width)
+except:
+	console_width = 0
 
 # get sshlogin vars
 sshlogin1 = sshlogin2 = None
