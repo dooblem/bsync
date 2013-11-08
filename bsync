@@ -58,8 +58,12 @@ def ssh_master_init(sshlogin):
 	import tempfile, atexit
 	tmpdir = tempfile.mkdtemp()
 	sshsock = os.path.join(tmpdir, "bsync_%r@%h:%p")
+	try:
+		subprocess.check_call(["ssh", "-fNMS", sshsock, sshlogin])
+	except subprocess.CalledProcessError:
+		sys.exit("Error: could not open SSH connection.")
+
 	atexit.register(ssh_master_clean, tmpdir, sshsock, sshlogin)
-	subprocess.check_call(["ssh", "-fNMS", sshsock, sshlogin])
 	return sshsock
 
 def ssh_master_clean(tmpdir, sshsock, sshlogin):
@@ -165,7 +169,7 @@ def load_orig(sshsock, sshlogin1,dir1name, sshlogin2,dir2name):
 	gen2 = fileLineIter(fd2, inputNewline='\0')
 
 	# iterate on gen1 to fill orig
-	# first fill with 1st .snap, then with 2nd .snap, because the order can be different (find output)
+	# first fill with 1st snap, then with 2nd snap, because the order can be different (in find output)
 	while True:
 		i=p=t=d=s=perms=None
 		try:
@@ -176,7 +180,7 @@ def load_orig(sshsock, sshlogin1,dir1name, sshlogin2,dir2name):
 			else:
 				sys.exit("Error: snap filelists not coherent.")
 
-		if not p.startswith(".bsync-snap-"):
+		if p != "" and (not p.startswith(".bsync-snap-")):
 			d = d.split(".")[0]	# truncate date to seconds
 			if t=="d": d="0"	# ignore dates for dirs
 			orig[p] = OrigFile(i,None, p,t,d,s,perms)
@@ -192,7 +196,7 @@ def load_orig(sshsock, sshlogin1,dir1name, sshlogin2,dir2name):
 			else:
 				sys.exit("Error: snap filelists not coherent.")
 
-		if not p.startswith(".bsync-snap-"):
+		if p != "" and (not p.startswith(".bsync-snap-")):
 			d = d.split(".")[0]	# truncate date to seconds
 			if t=="d": d="0"	# ignore dates for dirs
 
@@ -228,7 +232,7 @@ def load_dir(sshsock, sshlogin, dirname):
 
 		d = d.split(".")[0] #truncate date to seconds
 
-		if not p.startswith(".bsync-snap-"):
+		if p != "" and (not p.startswith(".bsync-snap-")):
 			if t=="d": d="0"
 			dir[p] = DirFile(i, p, t, d, s, perms)
 	
@@ -236,19 +240,41 @@ def load_dir(sshsock, sshlogin, dirname):
 	
 	return dir
 
+def getdatestr(f):
+	return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime( int(f.date.split(".")[0]) ))
+
+# conflict can be on type, date, size, perms
 def ask_conflict(f1, f2, path):
-	p1=p2=""
+
 	if f1 == None:
 		p1 = "*deleted*"
-	else:
-		d1 = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime( int(f1.date.split(".")[0]) ))
-		p1 = path+" ("+d1+")"
-	if f2 == None:
+		p2 = f2.type+" "+f2.perms+" "+f2.size+" ("+getdatestr(f2)+")"
+	elif f2 == None:
+		p1 = f1.type+" "+f1.perms+" "+f1.size+" ("+getdatestr(f1)+")"
 		p2 = "*deleted*"
 	else:
-		d2 = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime( int(f2.date.split(".")[0]) ))
-		p2 = path+" ("+d2+")"
+		p1=p2=""
+		if f1.type != f2.type:
+			p1+= f1.type
+			p2+= f2.type
+
+		if f1.perms != f2.perms:
+			p1+= " "+f1.perms
+			p2+= " "+f2.perms
+		
+		# size and date are meaningless for dirs. conflicts will not be on them
+		# don't display them if one side is a directory
+		if f1.size != f2.size and f1.type!="d" and f2.type!="d":
+			p1+= " "+f1.size
+			p2+= " "+f2.size
+
+		if f1.date != f2.date and f1.type!="d" and f2.type!="d":
+			p1+= " ("+getdatestr(f1)+")"
+			p2+= " ("+getdatestr(f2)+")"
+
+	print("Conflicting changes on: "+path)
 	print_action("conflict", p1, "???", p2)
+
 	resp = "invalid"
 	while resp != "1" and resp != "2":
 		resp = input("Which change do I keep [1|2]: ")
@@ -342,7 +368,7 @@ def rsync(rsyncproc, path):
 	rsyncproc.stdin.flush()
 
 def print_action(action, path1, arrow, path2):
-	print( path1.ljust(30) +" "+arrow+"  "+ path2.ljust(30) +"("+action+")" )
+	print( path1.ljust(30) +" "+arrow+"  "+ path2.ljust(30) +" ("+action+")" )
 
 def print_files(fo, f1, f2):
 	return
@@ -478,7 +504,7 @@ if sshlogin1!=None or sshlogin2!=None:
 	sshlogin = sshlogin1 if sshlogin1!=None else sshlogin2
 	sshsock = ssh_master_init(sshlogin)
 
-print("Loading original filelist from .snap files...")
+print("Loading original filelist from snap files...")
 snapname, origlist = load_orig(sshsock, sshlogin1,dir1name, sshlogin2,dir2name)
 
 print("Loading dir1 filelist...")
@@ -646,7 +672,7 @@ do_actions(1, sshsock,
 	)
 
 if realrun:
-	print("Updating .snap files...")
+	print("Updating snap files...")
 	newsnapname = ".bsync-snap-"+datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")
 	make_snapshot(sshsock, sshlogin1,dir1name, snapname,newsnapname)
 	make_snapshot(sshsock, sshlogin2,dir2name, snapname,newsnapname)
