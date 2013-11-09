@@ -257,7 +257,7 @@ def load_orig(sshsock, sshlogin1,dir1name, sshlogin2,dir2name):
 		if ignorepath(p, t, ignores): continue
 
 		d = d.split(".")[0]	# truncate date to seconds
-		if t=="d": d="0"	# ignore dates for dirs
+		if t=="d": d=s="0"	# ignore dates/size for dirs
 		orig[p] = OrigFile(i,None, p,t,d,s,perms)
 
 	# iterate on gen2, fill inodes for dir2 and check for consistency
@@ -274,7 +274,7 @@ def load_orig(sshsock, sshlogin1,dir1name, sshlogin2,dir2name):
 		if ignorepath(p, t, ignores): continue
 
 		d = d.split(".")[0]	# truncate date to seconds
-		if t=="d": d="0"	# ignore dates for dirs
+		if t=="d": d=s="0"	# ignore dates for dirs
 
 		if not p in orig: # can happen if using ignore, then removing ignore
 			continue # path will be considered as new
@@ -311,7 +311,7 @@ def load_dir(sshsock, sshlogin, dirname, ignores):
 		if ignorepath(p, t, ignores): continue
 
 		d = d.split(".")[0] #truncate date to seconds
-		if t=="d": d="0"
+		if t=="d": d=s="0"
 		dir[p] = DirFile(i, p, t, d, s, perms)
 	
 	fd.close()
@@ -571,7 +571,7 @@ def check_moves(copy, rm):
 	return copyreal, rm, moves
 
 def usage():
-	usage = "Usage: "+sys.argv[0]+" [-v] DIR1 DIR2"
+	usage = "Usage: bsync [-v] DIR1 DIR2"
 	print(usage , file=sys.stderr)
 
 #####################################################
