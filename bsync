@@ -227,7 +227,7 @@ def load_orig(sshsock, sshlogin1,dir1name, sshlogin2,dir2name):
 	common_snaps = snaps1.intersection(snaps2)
 	orig = collections.OrderedDict()
 	if len(common_snaps) == 0:
-		print("Warning: could not find snap files. Starting from empty history.")
+		print("Old filelist not found. Starting with empty history.")
 		return (None, orig, ignores) #empty snap and orig
 
 	snapname = max(common_snaps) #the most recent snapshot
@@ -353,7 +353,7 @@ def ask_conflict(f1, f2, path):
 
 	resp = "invalid"
 	while resp != "1" and resp != "2":
-		resp = input("Which change do I keep [1|2]: ")
+		resp = input("Which change do I keep [1/2]: ")
 	return resp
 
 #### file actions
