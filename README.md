@@ -19,3 +19,20 @@ Usage
     ./bsync DIRECTORY1 DIRECTORY2
     ./bsync DIRECTORY2 user@sshserver:DIRECTORY3
     
+Example
+-------
+
+    $ ./bsync dir1 dir2
+    Loading filelists...
+    dir1                        dir2                   
+    new                    -->                         (copy)
+    subdir/a               -->  subdir/a               (sync)
+                           <--  newdir/                (mkdir)
+                           <--  newdir/newfile         (copy)
+    Apply actions? [y/N] y
+    Applying actions...
+    rsync: new
+    rsync: subdir/a
+    rsync: newdir/newfile
+    Updating filelists...
+    Done!
