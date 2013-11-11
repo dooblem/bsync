@@ -9,7 +9,7 @@ class OrigFile():
 		self.i1 = inode1
 		self.i2 = inode2
 		self.type = type
-		self.date = date.split(".")[0] #truncate date to seconds
+		self.date = date
 		self.size = size
 		self.perms = perms
 
@@ -28,31 +28,6 @@ def samefiles(f1, f2):
 		return f1.date==f2.date and f1.perms==f2.perms and f1.size==f2.size
 	else:
 		return f1.type==f2.type and f1.date==f2.date and f1.perms==f2.perms
-
-# http://stackoverflow.com/questions/9237246/python-how-to-read-file-with-nul-delimited-lines
-# http://bugs.python.org/issue1152248
-def fileLineIter(inputFile,
-                 inputNewline="\n",
-                 outputNewline=None,
-                 readSize=8192):
-   """Like the normal file iter but you can set what string indicates newline.
-
-   The newline string can be arbitrarily long; it need not be restricted to a
-   single character. You can also set the read size and control whether or not
-   the newline string is left on the end of the iterated lines.  Setting
-   newline to '\0' is particularly good for use with an input file created with
-   something like "os.popen('find -print0')".
-   """
-   if outputNewline is None: outputNewline = inputNewline
-   partialLine = ''
-   while True:
-       charsJustRead = inputFile.read(readSize)
-       if not charsJustRead: break
-       partialLine += charsJustRead
-       lines = partialLine.split(inputNewline)
-       partialLine = lines.pop()
-       for line in lines: yield line + outputNewline.rstrip('\0') # little mod
-   if partialLine: yield partialLine.rstrip('\0') # little mod
 
 def ssh_master_init(sshlogin):
 	import tempfile, atexit
@@ -115,7 +90,6 @@ def rsync_check(sshsock, sshloginSrc,dirnameSrc, sshloginDst,dirnameDst):
 		rsyncsrc = dirnameSrc+"/"
 	else:
 		rsyncsrc = sshloginSrc+":"+dirnameSrc+"/"
-
 	if sshloginDst == None:
 		rsyncdst = dirnameDst+"/"
 	else:
@@ -147,12 +121,18 @@ def make_snapshot(sshsock, sshlogin,dirname, oldsnapname, newsnapname):
 	else:
 		subprocess.check_call([ "ssh", "-S"+sshsock, sshlogin, cmd])
 
+def make_snapshots(sshsock, sshlogin1,dir1name, sshlogin2,dir2name, oldsnapname):
+	newsnapname = ".bsync-snap-"+datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")
+	print("Updating filelists...")
+	printv("Updating snap files: "+newsnapname+"...")
+	make_snapshot(sshsock, sshlogin1,dir1name, oldsnapname,newsnapname)
+	make_snapshot(sshsock, sshlogin2,dir2name, oldsnapname,newsnapname)
+
 def get_find_fd(sshsock, sshlogin, dirname):
 	global findformat
 	if sshlogin==None:
 		return subprocess.Popen([ "find", dirname, "-printf", findformat ], stdout=subprocess.PIPE, universal_newlines=True).stdout
 	else:
-		#print(subprocess.Popen([ "ssh", "-S"+sshsock, sshlogin, "find "+dirname+" -printf "+findformat ], stdout=subprocess.PIPE, universal_newlines=True).communicate()[0])
 		return subprocess.Popen([ "ssh", "-S"+sshsock, sshlogin, "find "+dirname+" -printf '"+findformat+"'" ], stdout=subprocess.PIPE, universal_newlines=True).stdout
 
 def get_snap_fd(sshsock, sshlogin, dirname, snapname):
@@ -216,6 +196,46 @@ def ignorepath(path, type, ignoreset):
 	
 	return False
 
+# http://stackoverflow.com/questions/9237246/python-how-to-read-file-with-nul-delimited-lines
+# http://bugs.python.org/issue1152248
+def fileLineIter(inputFile,
+                 inputNewline="\n",
+                 outputNewline=None,
+                 readSize=8192):
+   """Like the normal file iter but you can set what string indicates newline.
+
+   The newline string can be arbitrarily long; it need not be restricted to a
+   single character. You can also set the read size and control whether or not
+   the newline string is left on the end of the iterated lines.  Setting
+   newline to '\0' is particularly good for use with an input file created with
+   something like "os.popen('find -print0')".
+   """
+   if outputNewline is None: outputNewline = inputNewline
+   partialLine = ''
+   while True:
+       charsJustRead = inputFile.read(readSize)
+       if not charsJustRead: break
+       partialLine += charsJustRead
+       lines = partialLine.split(inputNewline)
+       partialLine = lines.pop()
+       for line in lines: yield line + outputNewline.rstrip('\0') # little mod
+   if partialLine: yield partialLine.rstrip('\0') # little mod
+
+def read_file_record(gen):
+	i=p=t=d=s=perms=None
+	try:
+		i,p,t,d,s,perms = next(gen),next(gen),next(gen),next(gen),next(gen),next(gen)
+	except StopIteration:
+		if i==None and p==None and t==None and d==None and s==None and perms==None:
+			return None
+		else:
+			sys.exit("Error: snap filelists not coherent.")
+
+	d = d.split(".")[0]	# truncate date to seconds
+	if t=="d": d=s="0"	# ignore dates/size for dirs (set to zero)
+
+	return i,p,t,d,s,perms
+
 def load_orig(sshsock, sshlogin1,dir1name, sshlogin2,dir2name):
 	snaps1, ignorefile1 = get_bsync_files(sshsock, sshlogin1,dir1name)
 	snaps2, ignorefile2 = get_bsync_files(sshsock, sshlogin2,dir2name)
@@ -236,53 +256,35 @@ def load_orig(sshsock, sshlogin1,dir1name, sshlogin2,dir2name):
 
 	fd1 = get_snap_fd(sshsock, sshlogin1, dir1name, snapname)
 	fd2 = get_snap_fd(sshsock, sshlogin2, dir2name, snapname)
-
 	gen1 = fileLineIter(fd1, inputNewline='\0')
 	gen2 = fileLineIter(fd2, inputNewline='\0')
 
 	# iterate on gen1 to fill orig
 	# first fill with 1st snap, then with 2nd snap, because the order can be different (in find output)
-	while True:
-		i=p=t=d=s=perms=None
-		try:
-			i,p,t,d,s,perms = next(gen1),next(gen1),next(gen1),next(gen1),next(gen1),next(gen1)
-		except StopIteration:
-			if i==None and p==None and t==None and d==None and s==None and perms==None:
-				break
-			else:
-				sys.exit("Error: snap filelists not coherent.")
+	record = read_file_record(gen1)
+	while record != None:
+		inode,path,type,date,size,perms = record
 
-		if ignorepath(p, t, ignores): continue
-
-		d = d.split(".")[0]	# truncate date to seconds
-		if t=="d": d=s="0"	# ignore dates/size for dirs
-		orig[p] = OrigFile(i,None, p,t,d,s,perms)
+		if not ignorepath(path, type, ignores):
+			orig[path] = OrigFile(inode,None, path,type,date,size,perms)
+		
+		record = read_file_record(gen1)
 
 	# iterate on gen2, fill inodes for dir2 and check for consistency
-	while True:
-		i=p=t=d=s=perms=None
-		try:
-			i,p,t,d,s,perms = next(gen2),next(gen2),next(gen2),next(gen2),next(gen2),next(gen2)
-		except StopIteration:
-			if i==None and p==None and t==None and d==None and s==None and perms==None:
-				break
-			else:
-				sys.exit("Error: snap filelists not coherent.")
+	record = read_file_record(gen2)
+	while record != None:
+		inode,path,type,date,size,perms = record
 
-		if ignorepath(p, t, ignores): continue
+		if not ignorepath(path, type, ignores):
+			#path not in orig: can happen if using ignore, then removing ignore, path will be considered as new
+			if path in orig:
+				origfile = orig[path]
+				if origfile.type != type or origfile.date != date or origfile.size != size or origfile.perms != perms:
+					sys.exit("Error: difference in snaps for path: "+path) 
 
-		d = d.split(".")[0]	# truncate date to seconds
-		if t=="d": d=s="0"	# ignore dates for dirs
-
-		if not p in orig: # can happen if using ignore, then removing ignore
-			continue # path will be considered as new
-			#sys.exit("Error in snapshots: path only in dir2: "+p)
-
-		origfile = orig[p]
-		if origfile.type != t or origfile.date != d or origfile.size != s or origfile.perms != perms:
-			sys.exit("Error: difference in snaps for path: "+p) 
-
-		origfile.i2 = i
+				origfile.i2 = inode #set the second inode
+		
+		record = read_file_record(gen2)
 
 	fd1.close()
 	fd2.close()
@@ -293,25 +295,17 @@ def load_dir(sshsock, sshlogin, dirname, ignores):
 	dir = collections.OrderedDict()
 
 	fd = get_find_fd(sshsock, sshlogin, dirname)
+	gen = fileLineIter(fd, inputNewline='\0')
 
-	gen1 = fileLineIter(fd, inputNewline='\0')
+	record = read_file_record(gen)
+	while record != None:
+		inode,path,type,date,size,perms = record
 
-	while True:
-		i=p=t=d=s=perms=None
-		try:
-			i,p,t,d,s,perms = next(gen1),next(gen1),next(gen1),next(gen1),next(gen1),next(gen1)
-		except StopIteration:
-			if i==None and p==None and t==None and d==None and s==None and perms==None:
-				break
-			else:
-				sys.exit("Error: problem in find output")
+		if not ignorepath(path, type, ignores):
+			dir[path] = DirFile(inode, path, type, date, size, perms)
+		
+		record = read_file_record(gen)
 
-		if ignorepath(p, t, ignores): continue
-
-		d = d.split(".")[0] #truncate date to seconds
-		if t=="d": d=s="0"
-		dir[p] = DirFile(i, p, t, d, s, perms)
-	
 	fd.close()
 	
 	return dir
@@ -404,7 +398,6 @@ def printv(s):
 
 def print_action(action, path1, arrow, path2):
 	global console_width
-
 	w = 0
 	if console_width != 0:
 		w = (console_width -1-3-2 -1-11) // 2
@@ -414,14 +407,12 @@ def print_action(action, path1, arrow, path2):
 	print( path1.ljust(w) +" "+arrow+"  "+ path2.ljust(w) +" "+action )
 
 def print_files(fo, f1, f2):
-	return
 	print("%s: i:%s d:%s | i:%s d:%s (orig)" % (fo.path, fo.i1, fo.date, fo.i2, fo.date))
 	f1str = f1str = "i:"+f1.i+" d:"+str(f1.date) if f1!=None else ""
 	f2str = f2str = "i:"+f2.i+" d:"+str(f2.date) if f2!=None else ""
 	print("%s: %s | %s" % (fo.path, f1str, f2str))
 
 def print_files12(path, f1, f2):
-	return
 	f1str = f1str = "i:"+f1.i+" d:"+str(f1.date) if f1!=None else ""
 	f2str = f2str = "i:"+f2.i+" d:"+str(f2.date) if f2!=None else ""
 	print("%s: %s | %s" % (path, f1str, f2str))
@@ -619,8 +610,7 @@ if sshlogin1!=None and sshlogin2!=None:
 
 sshsock = None
 if sshlogin1!=None or sshlogin2!=None:
-	sshlogin = sshlogin1 if sshlogin1!=None else sshlogin2
-	sshsock = ssh_master_init(sshlogin)
+	sshsock = ssh_master_init(sshlogin1 if sshlogin1!=None else sshlogin2)
 
 print("Loading filelists...")
 
@@ -632,6 +622,7 @@ dir1 = load_dir(sshsock, sshlogin1, dir1name, ignores)
 printv("Loading dir2 filelist...")
 dir2 = load_dir(sshsock, sshlogin2, dir2name, ignores)
 
+printv("Analysing original paths...")
 mkdir1 = []
 mkdir2 = []
 rmdirs1 = []
@@ -642,8 +633,6 @@ copy12 = []
 copy21 = []
 sync12 = []
 sync21 = []
-
-printv("Analysing original paths...")
 # process all paths from snapshot
 for path, fo in origlist.items():
 	# f1==None f2==None				deleted both sides
@@ -658,8 +647,6 @@ for path, fo in origlist.items():
 
 	f1 = dir1[path] if path in dir1 else None
 	f2 = dir2[path] if path in dir2 else None
-
-	print_files(fo, f1, f2)
 
 	if f1 == None and f2 == None:
 		# deleted both sides --> nothing to do
@@ -733,8 +720,6 @@ printv("Analysing remaining new paths in dir1...")
 for path, f1 in dir1.items():
 	f2 = dir2[path] if path in dir2 else None
 
-	print_files12(path, f1, f2)
-	
 	if f2 != None and samefiles(f2,f1):
 		# f1 and f2 added but same files --> nothing to do
 		pass
@@ -759,8 +744,6 @@ printv("Analysing remaining new paths in dir2...")
 for path, f2 in dir2.items():
 	f1 = dir1[path] if path in dir1 else None
 
-	print_files12(path, f1, f2)
-	
 	if f1 != None and samefiles(f1,f2):
 		pass
 	elif f1 == None:
@@ -775,6 +758,7 @@ for path, f2 in dir2.items():
 		else: # tokeep == 2
 			sync21.append(path)
 
+# moves detection
 copy12, rm2, moves2 = check_moves(copy12, rm2)
 copy21, rm1, moves1 = check_moves(copy21, rm1)
 
@@ -785,10 +769,13 @@ rmdirs2.sort(reverse=True) # TODO someth cleaner than sort?
 # ACTIONS in dir2 -->
 # ACTIONS in dir1 <--
 
-if len(mkdir1+mkdir2+moves1+moves2+rmdirs1+rmdirs2+copy12+copy21+sync12+sync21) == 0 \
-  and len(rm1) == 0 and len(rm2) == 0:
+# if no action to do
+if len(mkdir1)==0 and len(moves1)==0 and len(rm1)==0 and len(rmdirs1)==0 and len(copy21)==0 and len(sync21)==0 and \
+   len(mkdir2)==0 and len(moves2)==0 and len(rm2)==0 and len(rmdirs2)==0 and len(copy12)==0 and len(sync12)==0:
 	if check: rsync_check(sshsock, sshlogin1,dir1name, sshlogin2,dir2name)
 	print("Identical directories. Nothing to do.")
+	if snapname == None:
+		make_snapshots(sshsock, sshlogin1,dir1name, sshlogin2,dir2name, snapname)
 	sys.exit()
 
 print_action("", args[0], "   ", args[1])
@@ -799,7 +786,6 @@ resp = "invalid"
 while resp != "y" and resp != "n":
 	resp = input("Apply actions? [y/N] ").lower()
 	if resp == "": resp = "n"
-
 if resp == "n":
 	print("Leaving files in place.")
 	sys.exit()
@@ -820,10 +806,6 @@ apply_actions(1, sshsock,
 
 if check: rsync_check(sshsock, sshlogin1,dir1name, sshlogin2,dir2name)
 
-newsnapname = ".bsync-snap-"+datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")
-print("Updating filelists...")
-printv("Updating snap files: "+newsnapname+"...")
-make_snapshot(sshsock, sshlogin1,dir1name, snapname,newsnapname)
-make_snapshot(sshsock, sshlogin2,dir2name, snapname,newsnapname)
+make_snapshots(sshsock, sshlogin1,dir1name, sshlogin2,dir2name, snapname)
 
 print("Done!")
