@@ -3,7 +3,9 @@ bsync
 
 Bidirectional synchronization using rsync
 
-bsync is a bidirectional synchronization tool, an alternative to Unison.
+It's an alternative to Unison, written in Python 3. bsync can detect and apply moved files from one side to the other. (Unison uses some copy calls to handle moved files)
+
+I developped it to be able to synchronize my music directory from my laptop to my Raspberry Pi in an efficient way, and to sync with my girlfriend laptop too.
 
 It uses 'rsync' for file transfers, 'find' to generate file lists, and 'ssh' for remote transfers.
 
@@ -12,7 +14,9 @@ Install
 
     wget https://raw.github.com/dooblem/bsync/master/bsync
     chmod +x bsync
-    
+
+Be sure to have rsync installed on local and remote locations.
+
 Usage
 -----
 
@@ -37,7 +41,22 @@ Example
     Updating filelists...
     Done!
 
-
     $ ./bsync dir1 dir2
     Loading filelists...
     Identical directories. Nothing to do.
+    
+Features
+--------
+
+* Moved files detection
+* Remote directories using SSH
+* No problem with symlinks or permissions
+* Conflict detection
+* No python dependency on remote locations (just GNU find and rsync)
+* Exclude some subdirectories from sync (just create a .bsync-ignore file)
+* Move your sync dirs without loosing sync memory (filelists stored in .bsync-snap-* files)
+* 
+
+not yet supported :
+* files owners/groups ignored
+* 
