@@ -36,3 +36,7 @@ Example
     rsync: newdir/newfile
     Updating filelists...
     Done!
+
+    $ ./bsync dir1 dir2
+    Loading filelists...
+    Identical directories. Nothing to do.
