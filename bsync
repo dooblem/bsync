@@ -53,6 +53,8 @@ def ssh_master_init(sshlogin):
 		subprocess.check_call(["ssh", "-fNMS", sshsock, sshlogin])
 	except subprocess.CalledProcessError:
 		sys.exit("Error: could not open SSH connection.")
+	except FileNotFoundError:
+		sys.exit("Error: ssh is not installed.")
 
 	atexit.register(ssh_master_clean, tmpdir, sshsock, sshlogin)
 	return sshsock
@@ -104,7 +106,7 @@ def rsync_init(sshsock, sshloginSrc,dirnameSrc, sshloginDst,dirnameDst):
 def rsync_check_install(sshsock, sshlogin):
 	remote_check = ""
 	if sshlogin != None:
-		remote_check = " && ssh -S"+sshsock+" "+sshlogin+" which rsync"
+		remote_check = " && ssh -S"+sshsock+" "+shlex.quote(sshlogin)+" which rsync"
 
 	with open(os.devnull, 'w') as devnull:
 		ret = subprocess.call("which rsync"+remote_check, shell=True, stdout=devnull, stderr=devnull)
@@ -138,9 +140,9 @@ def rsync_check(sshsock, sshloginSrc,dirnameSrc, sshloginDst,dirnameDst):
 def make_snapshot(sshsock, sshlogin,dirname, oldsnapname, newsnapname):
 	global findformat
 
-	cmd = "find %s -fprintf %s '%s'" % (dirname, dirname+"/"+newsnapname, findformat)
+	cmd = "find %s -fprintf %s '%s'" % (shlex.quote(dirname), shlex.quote(dirname+"/"+newsnapname), findformat)
 	if oldsnapname!=None:
-		cmd+= " && rm -f "+dirname+"/"+oldsnapname
+		cmd+= " && rm -f "+shlex.quote(dirname+"/"+oldsnapname)
 
 	if sshlogin==None:
 		subprocess.check_call(cmd, shell=True)
@@ -159,13 +161,13 @@ def get_find_fd(sshsock, sshlogin, dirname):
 	if sshlogin==None:
 		return subprocess.Popen([ "find", dirname, "-printf", findformat ], stdout=subprocess.PIPE, universal_newlines=True).stdout
 	else:
-		return subprocess.Popen([ "ssh", "-S"+sshsock, sshlogin, "find "+dirname+" -printf '"+findformat+"'" ], stdout=subprocess.PIPE, universal_newlines=True).stdout
+		return subprocess.Popen([ "ssh", "-S"+sshsock, sshlogin, "find "+shlex.quote(dirname)+" -printf '"+findformat+"'" ], stdout=subprocess.PIPE, universal_newlines=True).stdout
 
 def get_snap_fd(sshsock, sshlogin, dirname, snapname):
 	if sshlogin==None:
 		return open(dirname+"/"+snapname, "r")
 	else:
-		return subprocess.Popen([ "ssh", "-S"+sshsock, sshlogin, "cat "+dirname+"/"+snapname ], stdout=subprocess.PIPE, universal_newlines=True).stdout
+		return subprocess.Popen([ "ssh", "-S"+sshsock, sshlogin, "cat "+shlex.quote(dirname+"/"+snapname) ], stdout=subprocess.PIPE, universal_newlines=True).stdout
 
 def get_bsync_files(sshsock, sshlogin,dirname):
 	files = set()
@@ -178,7 +180,7 @@ def get_bsync_files(sshsock, sshlogin,dirname):
 			sys.exit("Error: could not open directory: "+dirname)
 	else:
 		try:
-			out = subprocess.check_output([ "ssh", "-S"+sshsock, sshlogin, "cd "+dirname+" && ( ls -1 .bsync-* 2>/dev/null || true )" ], universal_newlines=True)
+			out = subprocess.check_output([ "ssh", "-S"+sshsock, sshlogin, "cd "+shlex.quote(dirname)+" && ( ls -1 .bsync-* 2>/dev/null || true )" ], universal_newlines=True)
 		except subprocess.CalledProcessError:
 			sys.exit("Error: could not open remote directory: "+dirname)
 		
@@ -201,7 +203,7 @@ def get_ignores(ignorefile, sshsock, sshlogin,dirname):
 		with open(dirname+"/"+ignorefile) as fd:
 			out = fd.read()
 	else:
-		out = subprocess.check_output([ "ssh", "-S"+sshsock, sshlogin, "cat "+dirname+"/"+ignorefile ], universal_newlines=True)
+		out = subprocess.check_output([ "ssh", "-S"+sshsock, sshlogin, "cat "+shlex.quote(dirname+"/"+ignorefile) ], universal_newlines=True)
 
 	lines = out.split("\n")
 
