@@ -17,6 +17,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#TODO improve shlex calls
+
 import os, sys, shutil, subprocess, collections, time, datetime, shlex, getopt
 
 class OrigFile():
@@ -87,15 +89,8 @@ def rsync_init(sshsock, sshloginSrc,dirnameSrc, sshloginDst,dirnameDst):
 	#
 	#rsync ssh/dir2 --> local/dir1
 	#rsync local/dir2 --> ssh/dir1
-	if sshloginSrc == None:
-		rsyncsrc = dirnameSrc+"/"
-	else:
-		rsyncsrc = sshloginSrc+":"+dirnameSrc+"/"
-
-	if sshloginDst == None:
-		rsyncdst = dirnameDst+"/"
-	else:
-		rsyncdst = sshloginDst+":"+dirnameDst+"/"
+	rsyncsrc = getdirstr(sshloginSrc, dirnameSrc)+"/"
+	rsyncdst = getdirstr(sshloginDst, dirnameDst)+"/"
 
 	args = [ "-a", "--files-from=-", "--from0", "--no-implied-dirs", "--out-format=rsync: %n%L" ]
 	if sshsock != None:
@@ -143,11 +138,15 @@ def make_snapshot(sshsock, sshlogin,dirname, oldsnapname, newsnapname):
 	cmd = "find %s -fprintf %s '%s'" % (shlex.quote(dirname), shlex.quote(dirname+"/"+newsnapname), findformat)
 	if oldsnapname!=None:
 		cmd+= " && rm -f "+shlex.quote(dirname+"/"+oldsnapname)
+	# remove inconsistent newsnap if error in find
+	cmd+= " || ( rm -f "+shlex.quote(dirname+"/"+newsnapname)+" && false )"
 
 	if sshlogin==None:
-		subprocess.check_call(cmd, shell=True)
+		ret = subprocess.call(cmd, shell=True)
 	else:
-		subprocess.check_call([ "ssh", "-S"+sshsock, sshlogin, cmd])
+		ret = subprocess.call([ "ssh", "-S"+sshsock, sshlogin, cmd])
+
+	if ret != 0: sys.exit("Error making a snapshot.")
 
 def make_snapshots(sshsock, sshlogin1,dir1name, sshlogin2,dir2name, oldsnapname):
 	newsnapname = ".bsync-snap-"+datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")
@@ -156,12 +155,12 @@ def make_snapshots(sshsock, sshlogin1,dir1name, sshlogin2,dir2name, oldsnapname)
 	make_snapshot(sshsock, sshlogin1,dir1name, oldsnapname,newsnapname)
 	make_snapshot(sshsock, sshlogin2,dir2name, oldsnapname,newsnapname)
 
-def get_find_fd(sshsock, sshlogin, dirname):
+def get_find_proc(sshsock, sshlogin, dirname):
 	global findformat
 	if sshlogin==None:
-		return subprocess.Popen([ "find", dirname, "-printf", findformat ], stdout=subprocess.PIPE, universal_newlines=True).stdout
+		return subprocess.Popen([ "find", dirname, "-printf", findformat ], stdout=subprocess.PIPE, universal_newlines=True)
 	else:
-		return subprocess.Popen([ "ssh", "-S"+sshsock, sshlogin, "find "+shlex.quote(dirname)+" -printf '"+findformat+"'" ], stdout=subprocess.PIPE, universal_newlines=True).stdout
+		return subprocess.Popen([ "ssh", "-S"+sshsock, sshlogin, "find "+shlex.quote(dirname)+" -printf '"+findformat+"'" ], stdout=subprocess.PIPE, universal_newlines=True)
 
 def get_snap_fd(sshsock, sshlogin, dirname, snapname):
 	if sshlogin==None:
@@ -180,7 +179,7 @@ def get_bsync_files(sshsock, sshlogin,dirname):
 			sys.exit("Error: could not open directory: "+dirname)
 	else:
 		try:
-			out = subprocess.check_output([ "ssh", "-S"+sshsock, sshlogin, "cd "+shlex.quote(dirname)+" && ( ls -1 .bsync-* 2>/dev/null || true )" ], universal_newlines=True)
+			out = subprocess.check_output([ "ssh", "-S"+sshsock, sshlogin, "[ -r "+shlex.quote(dirname)+" ] && cd "+shlex.quote(dirname)+" 2>/dev/null && ( ls -1 .bsync-* 2>/dev/null || true )" ], universal_newlines=True)
 		except subprocess.CalledProcessError:
 			sys.exit("Error: could not open remote directory: "+dirname)
 		
@@ -290,6 +289,7 @@ def load_orig(sshsock, sshlogin1,dir1name, sshlogin2,dir2name):
 	# iterate on gen1 to fill orig
 	# first fill with 1st snap, then with 2nd snap, because the order can be different (in find output)
 	record = read_file_record(gen1)
+	if record==None: sys.exit("Error reading files from dir1 filelist") #should be at least one record (dir root)
 	while record != None:
 		inode,path,type,date,size,perms = record
 
@@ -300,6 +300,7 @@ def load_orig(sshsock, sshlogin1,dir1name, sshlogin2,dir2name):
 
 	# iterate on gen2, fill inodes for dir2 and check for consistency
 	record = read_file_record(gen2)
+	if record==None: sys.exit("Error reading files from dir2 filelist")
 	while record != None:
 		inode,path,type,date,size,perms = record
 
@@ -319,10 +320,14 @@ def load_orig(sshsock, sshlogin1,dir1name, sshlogin2,dir2name):
 
 	return snapname, orig, ignores
 
+def getdirstr(sshlogin,dirname):
+	return dirname if sshlogin==None else sshlogin+":"+dirname
+
 def load_dir(sshsock, sshlogin, dirname, ignores):
 	dir = collections.OrderedDict()
 
-	fd = get_find_fd(sshsock, sshlogin, dirname)
+	proc = get_find_proc(sshsock, sshlogin, dirname)
+	fd = proc.stdout
 	gen = fileLineIter(fd, inputNewline='\0')
 
 	record = read_file_record(gen)
@@ -335,6 +340,9 @@ def load_dir(sshsock, sshlogin, dirname, ignores):
 		record = read_file_record(gen)
 
 	fd.close()
+	proc.wait()
+	if proc.returncode != 0:
+		sys.exit("Find Error in "+getdirstr(sshlogin,dirname))
 	
 	return dir
 
