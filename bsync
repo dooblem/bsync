@@ -101,6 +101,16 @@ def rsync_init(sshsock, sshloginSrc,dirnameSrc, sshloginDst,dirnameDst):
 
 	return subprocess.Popen(["rsync"]+args+[rsyncsrc, rsyncdst], stdin=subprocess.PIPE, universal_newlines=True)
 
+def rsync_check_install(sshsock, sshlogin):
+	remote_check = ""
+	if sshlogin != None:
+		remote_check = " && ssh -S"+sshsock+" "+sshlogin+" which rsync"
+
+	with open(os.devnull, 'w') as devnull:
+		ret = subprocess.call("which rsync"+remote_check, shell=True, stdout=devnull, stderr=devnull)
+	if ret != 0:
+		sys.exit("Error: please check that rsync is installed (both local and remote sides)")
+
 def rsync_check(sshsock, sshloginSrc,dirnameSrc, sshloginDst,dirnameDst):
 	if sshloginSrc == None:
 		rsyncsrc = dirnameSrc+"/"
@@ -610,23 +620,28 @@ dir2name = args[1]
 
 # try to get console width, for displaying actions, if running interactive
 try:
-	height, width = subprocess.check_output(['stty', 'size'], universal_newlines=True, stderr=subprocess.DEVNULL).split()
+	with open(os.devnull, 'w') as devnull:
+		height, width = subprocess.check_output(['stty', 'size'], universal_newlines=True, stderr=devnull).split()
 	console_width = int(width)
 except:
 	console_width = 0
 
 # get sshlogin vars
-sshlogin1 = sshlogin2 = None
+sshlogin = sshlogin1 = sshlogin2 = None
 if ':' in dir1name:
 	sshlogin1, dir1name = dir1name.split(':', 1)
+	sshlogin = sshlogin1
 if ':' in dir2name:
 	sshlogin2, dir2name = dir2name.split(':', 1)
+	sshlogin = sshlogin2
 if sshlogin1!=None and sshlogin2!=None:
 	sys.exit("Error: only one remote directory supported.")
 
 sshsock = None
-if sshlogin1!=None or sshlogin2!=None:
-	sshsock = ssh_master_init(sshlogin1 if sshlogin1!=None else sshlogin2)
+if sshlogin != None:
+	sshsock = ssh_master_init(sshlogin)
+
+rsync_check_install(sshsock, sshlogin)
 
 print("Loading filelists...")
 
