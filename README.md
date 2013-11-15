@@ -36,7 +36,7 @@ bsync can also be used to sync with a master directory:
 Features
 --------
 
-* Moved files detection
+* Moved files detection (using inodes numbers)
 * Remote directories using SSH
 * No problem with symlinks or permissions
 * Conflict detection
