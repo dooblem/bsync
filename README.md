@@ -3,7 +3,7 @@ bsync
 
 Bidirectional synchronization using rsync, handling moved files
 
-It uses `rsync` for file transfers, `find` to generate filelist snapshots, and `ssh` for remote transfers.
+It uses __rsync__ for file transfers, __find__ to generate filelist snapshots, and __ssh__ for remote transfers.
 
 bsync is an alternative to Unison, written in Python 3. A big strength of bsync: it can detect and apply moved files from one side to the other (Unison uses some copy calls to handle moved files).
 
@@ -24,7 +24,7 @@ Usage
 Fairly simple:
 
     ./bsync DIRECTORY1 DIRECTORY2
-    ./bsync ALICE_DIR bob@sshserver:BOB_DIR
+    ./bsync ALICE_DIR  bob@sshserver:BOB_DIR
    
 bsync can also be used to sync with a master directory:
 
