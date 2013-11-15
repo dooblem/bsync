@@ -21,6 +21,7 @@
 
 import os, sys, shutil, subprocess, collections, time, datetime, shlex, getopt
 
+# a file record from snapshots (original file)
 class OrigFile():
 	def __init__(self, inode1,inode2, path,type,date,size,perms):
 		self.path = path
@@ -31,6 +32,7 @@ class OrigFile():
 		self.size = size
 		self.perms = perms
 
+# a file record from an actual directory
 class DirFile():
 	def __init__(self, inode, path, type, date, size, perms):
 		self.i = inode
@@ -108,6 +110,7 @@ def rsync_check_install(sshsock, sshlogin):
 	if ret != 0:
 		sys.exit("Error: please check that rsync is installed (both local and remote sides)")
 
+# check with rsync that directories are identical (-c flag)
 def rsync_check(sshsock, sshloginSrc,dirnameSrc, sshloginDst,dirnameDst):
 	if sshloginSrc == None:
 		rsyncsrc = dirnameSrc+"/"
@@ -130,8 +133,8 @@ def rsync_check(sshsock, sshloginSrc,dirnameSrc, sshloginDst,dirnameDst):
 	if len(diff) != 0:
 		sys.exit("Error: rsync_check differences:\n"+str(diff))
 
-# TODO arguments and escapes...
-# snap format: inode, path, type, date
+# take a snapshot of files states from dir, using find. store it in .bsync-snap-XXXX
+# snap format: inode, path, type, date...
 def make_snapshot(sshsock, sshlogin,dirname, oldsnapname, newsnapname):
 	global findformat
 
@@ -155,6 +158,7 @@ def make_snapshots(sshsock, sshlogin1,dir1name, sshlogin2,dir2name, oldsnapname)
 	make_snapshot(sshsock, sshlogin1,dir1name, oldsnapname,newsnapname)
 	make_snapshot(sshsock, sshlogin2,dir2name, oldsnapname,newsnapname)
 
+# run find in a directory to dump its content
 def get_find_proc(sshsock, sshlogin, dirname):
 	global findformat
 	if sshlogin==None:
@@ -162,12 +166,14 @@ def get_find_proc(sshsock, sshlogin, dirname):
 	else:
 		return subprocess.Popen([ "ssh", "-S"+sshsock, sshlogin, "find "+shlex.quote(dirname)+" -printf '"+findformat+"'" ], stdout=subprocess.PIPE, universal_newlines=True)
 
+# get a file descriptor to read the snapshot file
 def get_snap_fd(sshsock, sshlogin, dirname, snapname):
 	if sshlogin==None:
 		return open(dirname+"/"+snapname, "r")
 	else:
 		return subprocess.Popen([ "ssh", "-S"+sshsock, sshlogin, "cat "+shlex.quote(dirname+"/"+snapname) ], stdout=subprocess.PIPE, universal_newlines=True).stdout
 
+# returns all .bsync-snap-* and .bsync-ignore filenames from dir
 def get_bsync_files(sshsock, sshlogin,dirname):
 	files = set()
 	if sshlogin==None:
@@ -195,6 +201,7 @@ def get_bsync_files(sshsock, sshlogin,dirname):
 			
 	return snaps, ignorefile
 
+# get ignore entries from .bsync-ignore file
 def get_ignores(ignorefile, sshsock, sshlogin,dirname):
 	if ignorefile == None: return set()
 
@@ -213,14 +220,14 @@ def get_ignores(ignorefile, sshsock, sshlogin,dirname):
 			ignores.add(l)
 	return ignores
 
-def ignorepath(path, type, ignoreset):
+# returns True if the path has to be ignored
+def ignorepath(path, ignoreset):
 	if path == "" or path.startswith(".bsync-"):
 		return True
 	else:
 		for ignore in ignoreset:
 			if (path+"/").startswith(ignore):
 				return True
-	
 	return False
 
 # http://stackoverflow.com/questions/9237246/python-how-to-read-file-with-nul-delimited-lines
@@ -263,6 +270,7 @@ def read_file_record(gen):
 
 	return i,p,t,d,s,perms
 
+# load original file records from snapshots, and ignore entries
 def load_orig(sshsock, sshlogin1,dir1name, sshlogin2,dir2name):
 	snaps1, ignorefile1 = get_bsync_files(sshsock, sshlogin1,dir1name)
 	snaps2, ignorefile2 = get_bsync_files(sshsock, sshlogin2,dir2name)
@@ -293,7 +301,7 @@ def load_orig(sshsock, sshlogin1,dir1name, sshlogin2,dir2name):
 	while record != None:
 		inode,path,type,date,size,perms = record
 
-		if not ignorepath(path, type, ignores):
+		if not ignorepath(path, ignores):
 			orig[path] = OrigFile(inode,None, path,type,date,size,perms)
 		
 		record = read_file_record(gen1)
@@ -304,7 +312,7 @@ def load_orig(sshsock, sshlogin1,dir1name, sshlogin2,dir2name):
 	while record != None:
 		inode,path,type,date,size,perms = record
 
-		if not ignorepath(path, type, ignores):
+		if not ignorepath(path, ignores):
 			#path not in orig: can happen if using ignore, then removing ignore, path will be considered as new
 			if path in orig:
 				origfile = orig[path]
@@ -323,6 +331,7 @@ def load_orig(sshsock, sshlogin1,dir1name, sshlogin2,dir2name):
 def getdirstr(sshlogin,dirname):
 	return dirname if sshlogin==None else sshlogin+":"+dirname
 
+# load actual directory content
 def load_dir(sshsock, sshlogin, dirname, ignores):
 	dir = collections.OrderedDict()
 
@@ -334,7 +343,7 @@ def load_dir(sshsock, sshlogin, dirname, ignores):
 	while record != None:
 		inode,path,type,date,size,perms = record
 
-		if not ignorepath(path, type, ignores):
+		if not ignorepath(path, ignores):
 			dir[path] = DirFile(inode, path, type, date, size, perms)
 		
 		record = read_file_record(gen)
@@ -349,9 +358,9 @@ def load_dir(sshsock, sshlogin, dirname, ignores):
 def getdatestr(f):
 	return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime( int(f.date.split(".")[0]) ))
 
+# ask the user about conflicting changes
 # conflict can be on type, date, size, perms
 def ask_conflict(f1, f2, path):
-
 	if f1 == None:
 		p1 = "*deleted*"
 		p2 = f2.type+" "+f2.perms+" "+f2.size+" ("+getdatestr(f2)+")"
@@ -424,6 +433,7 @@ def move(shproc, src, dst, perms):
 			shproc.stdin.write("chmod "+perms+" "+shlex.quote(dst)+"\n")
 		shproc.stdin.flush()
 
+# just write a path in rsync process stdin
 def rsync(rsyncproc, path):
 	rsyncproc.stdin.write(path+"\0")
 	rsyncproc.stdin.flush()
@@ -447,12 +457,12 @@ def print_files(fo, f1, f2):
 	f1str = f1str = "i:"+f1.i+" d:"+str(f1.date) if f1!=None else ""
 	f2str = f2str = "i:"+f2.i+" d:"+str(f2.date) if f2!=None else ""
 	print("%s: %s | %s" % (fo.path, f1str, f2str))
-
 def print_files12(path, f1, f2):
 	f1str = f1str = "i:"+f1.i+" d:"+str(f1.date) if f1!=None else ""
 	f2str = f2str = "i:"+f2.i+" d:"+str(f2.date) if f2!=None else ""
 	print("%s: %s | %s" % (path, f1str, f2str))
 
+# print actions before asking user validation
 def print_actions(dirnum, mkdirs,moves,rm,rmdirs, copy,sync):
 	##### actions involving one side
 	arrow = "-->"
@@ -674,7 +684,7 @@ copy12 = []
 copy21 = []
 sync12 = []
 sync21 = []
-# process all paths from snapshot
+# process all original paths (from snapshot)
 for path, fo in origlist.items():
 	# f1==None f2==None				deleted both sides
 	# f1==None f2=!None f2.d==fo.d			f1 chg only
@@ -806,7 +816,6 @@ copy21, rm1, moves1 = check_moves(copy21, rm1)
 rmdirs1.sort(reverse=True) # TODO someth cleaner than sort?
 rmdirs2.sort(reverse=True) # TODO someth cleaner than sort?
 
-# ACTION!
 # ACTIONS in dir2 -->
 # ACTIONS in dir1 <--
 
