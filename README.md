@@ -1,13 +1,14 @@
 bsync
 =====
 
-Bidirectional synchronization using rsync
+Bidirectional synchronization using rsync, handling moved files
 
-It's an alternative to Unison, written in Python 3. bsync can detect and apply moved files from one side to the other. (Unison uses some copy calls to handle moved files)
+It uses `rsync` for file transfers, `find` to generate filelist snapshots, and `ssh` for remote transfers.
+
+bsync is an alternative to Unison, written in Python 3. A big strength of bsync: it can detect and apply moved files from one side to the other (Unison uses some copy calls to handle moved files).
 
 I developped it to be able to synchronize my music directory from my laptop to my Raspberry Pi in an efficient way, and to sync with my girlfriend laptop too.
 
-It uses 'rsync' for file transfers, 'find' to generate file lists, and 'ssh' for remote transfers.
 
 Install
 -------
@@ -15,14 +16,39 @@ Install
     wget https://raw.github.com/dooblem/bsync/master/bsync
     chmod +x bsync
 
-Be sure to have rsync installed on local and remote locations.
+For remote syncing: don't forget to install rsync.
 
 Usage
 -----
 
+Fairly simple:
+
     ./bsync DIRECTORY1 DIRECTORY2
-    ./bsync DIRECTORY2 user@sshserver:DIRECTORY3
+    ./bsync ALICE_DIR bob@sshserver:BOB_DIR
+   
+bsync can also be used to sync with a master directory:
+
+    # Alice makes local changes
+    ./bsync ALICE_DIR MASTER_DIR
+    ./bsync BOB_DIR   MASTER_DIR
+    # Bob gets Alice changes, sending his changes to master in the same time
     
+Features
+--------
+
+* Moved files detection
+* Remote directories using SSH
+* No problem with symlinks or permissions
+* Conflict detection
+* Python not needed on remote side (just GNU find and rsync)
+* Exclude some subdirectories from sync (just create a `.bsync-ignore` file)
+* Move your sync dirs without loosing sync memory (filelists stored inside directories in `.bsync-snap-*` files)
+
+Limitations:
+* files ownership ignored (would matter if syncing from root user, but sufficient for regular users)
+* no subdir conflict detection (a bit like in git where only files matter, no conflict is detected if dir1/dir/
+  removed and dir2/dir/file created the other side)
+
 Example
 -------
 
@@ -45,20 +71,6 @@ Example
     Loading filelists...
     Identical directories. Nothing to do.
     
-Features
---------
-
-* Moved files detection
-* Remote directories using SSH
-* No problem with symlinks or permissions
-* Conflict detection
-* No python dependency on remote locations (just GNU find and rsync)
-* Exclude some subdirectories from sync (just create a `.bsync-ignore` file)
-* Move your sync dirs without loosing sync memory (filelists stored in `.bsync-snap-*` files)
-
-not yet supported :
-* files owners/groups ignored
-
 .bsync-ignore files
 -------------------
 
@@ -70,4 +82,4 @@ Say, if I have a `dir1/.bsync-ignore` file with content:
     path/to/ignoredir
     path/to/ignorefile
 
-`dir1/path/to/ignoredir` and `dir1/path/to/ignorefile` will be ignored in the next bsync runs.
+`dir1/path/to/ignoredir` (+content) and `dir1/path/to/ignorefile` will be ignored in the next bsync runs.
