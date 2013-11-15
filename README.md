@@ -53,10 +53,20 @@ Features
 * No problem with symlinks or permissions
 * Conflict detection
 * No python dependency on remote locations (just GNU find and rsync)
-* Exclude some subdirectories from sync (just create a .bsync-ignore file)
-* Move your sync dirs without loosing sync memory (filelists stored in .bsync-snap-* files)
-* 
+* Exclude some subdirectories from sync (just create a `.bsync-ignore` file)
+* Move your sync dirs without loosing sync memory (filelists stored in `.bsync-snap-*` files)
 
 not yet supported :
 * files owners/groups ignored
-* 
+
+.bsync-ignore files
+-------------------
+
+You can add directories/files paths in a `.bsync-ignore` file located at the root of a sync directory.
+Every path in it will be ignored when syncing with other dirs. You can also see that as a mask for the synchronization.
+
+Say, if I have a `dir1/.bsync-ignore` file with content:
+    path/to/ignoredir
+    path/to/ignorefile
+
+`dir1/path/to/ignoredir` and `dir1/path/to/ignorefile` will be ignored in the next bsync runs.
