@@ -66,6 +66,7 @@ You can add directories/files paths in a `.bsync-ignore` file located at the roo
 Every path in it will be ignored when syncing with other dirs. You can also see that as a mask for the synchronization.
 
 Say, if I have a `dir1/.bsync-ignore` file with content:
+
     path/to/ignoredir
     path/to/ignorefile
 
