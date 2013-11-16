@@ -17,7 +17,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import os, sys, shutil, subprocess, collections, time, datetime, shlex, getopt
+import os, sys, shutil, subprocess, collections, time, datetime, shlex, getopt, stat
 
 # a file record from snapshots (original file)
 class OrigFile():
@@ -370,6 +370,15 @@ def load_dir(sshsock, sshlogin, dirname, ignores):
 def getdatestr(f):
 	return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime( int(f.date.split(".")[0]) ))
 
+def getfilemode(type, perms):
+	if type=="f": type="-"
+	try:
+		# filemode() only exists in pyton3.3
+		return type + stat.filemode(int(perms, 8))[1:]
+	except AttributeError:
+		o2str = { '7':'rwx', '6':'rw-', '5':'r-x', '4':'r--', '0':'---' }
+		return type + o2str[perms[-3]] + o2str[perms[-2]] + o2str[perms[-1]]
+
 # ask the user about conflicting changes
 # conflict can be on type, date, size, perms
 def ask_conflict(f1, f2, path):
@@ -381,13 +390,9 @@ def ask_conflict(f1, f2, path):
 		p2 = "*deleted*"
 	else:
 		p1=p2=""
-		if f1.type != f2.type:
-			p1+= f1.type
-			p2+= f2.type
-
-		if f1.perms != f2.perms:
-			p1+= " "+f1.perms
-			p2+= " "+f2.perms
+		if f1.type != f2.type or f1.perms != f2.perms:
+			p1+= " "+getfilemode(f1.type, f1.perms)
+			p2+= " "+getfilemode(f2.type, f2.perms)
 		
 		# size and date are meaningless for dirs. conflicts will not be on them
 		# don't display them if one side is a directory
