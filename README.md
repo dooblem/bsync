@@ -43,6 +43,7 @@ Features
 * Python not needed on remote side (just GNU find and rsync)
 * Exclude some subdirectories from sync (just create a `.bsync-ignore` file)
 * Move your sync dirs without loosing sync memory (filelists stored inside directories in `.bsync-snap-*` files)
+* Auto disable permissions on fat filesystems
 
 Limitations:
 * files ownership ignored (would matter if syncing from root user, but sufficient for regular users)

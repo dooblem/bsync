@@ -108,8 +108,11 @@ def rsync_check_install(sshsock, sshlogin):
 	if ret != 0:
 		sys.exit("Error: please check that rsync is installed (both local and remote sides)")
 
+# check if the filesystem supports permissions
 def fs_check_noperms(sshsock, sshlogin,dirname):
 	testtmpfile = shlex.quote( dirname+"/.bsync-permtest-"+datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f") )
+	# try to create a file with no permissions at all
+	# if the file is still readable, the fs do not support permissions (fat...)
 	testpermcmd = "umask 777; touch "+testtmpfile+"; [ -r "+testtmpfile+" ]; ret=$?; rm -f "+testtmpfile+"; exit $ret"
 
 	with open(os.devnull, 'w') as devnull:
@@ -426,7 +429,6 @@ def removedir(shproc, path):
 		shproc.stdin.write("rmdir "+shlex.quote(path)+" || true\n")
 		shproc.stdin.flush()
 
-# TODO security for shell injection
 def mkdir(shproc, path, perms):
 	if shproc == None:
 		if perms=="":
@@ -626,7 +628,7 @@ def check_moves(copy, rm):
 	return copyreal, rm, moves
 
 def usage():
-	usage = "Usage: bsync [-vi] DIR1 DIR2\n"
+	usage = "Usage: bsync [-vi] DIR1 DIR2\n\n"
 	usage+= "	DIR can be user@sshserver:DIR\n"
 	usage+= "	-v	verbose\n"
 	usage+= "	-i	ignore permissions\n"
