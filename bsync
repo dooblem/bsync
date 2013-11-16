@@ -399,8 +399,8 @@ def ask_conflict(f1, f2, path, tokeep):
 		# size and date are meaningless for dirs. conflicts will not be on them
 		# don't display them if one side is a directory
 		if f1.size != f2.size and f1.type!="d" and f2.type!="d":
-			p1+= " "+f1.size
-			p2+= " "+f2.size
+			p1+= " "+f1.size+"B"
+			p2+= " "+f2.size+"B"
 
 		if f1.date != f2.date and f1.type!="d" and f2.type!="d":
 			p1+= " ("+getdatestr(f1)+")"
