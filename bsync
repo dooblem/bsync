@@ -119,7 +119,7 @@ def fs_check_noperms(sshsock, sshlogin,dirname):
 		if sshlogin == None:
 			ret = subprocess.call(testpermcmd, shell=True, stdout=devnull,stderr=devnull)
 		else:
-			ret = subprocess.call(["ssh", "-S"+sshsock, sshlogin, testpermcmd])
+			ret = subprocess.call(["ssh", "-S"+sshsock, sshlogin, testpermcmd], stdout=devnull,stderr=devnull)
 	return ret==0
 
 # check with rsync that directories are identical (-c flag)
@@ -188,18 +188,15 @@ def get_snap_fd(sshsock, sshlogin, dirname, snapname):
 # returns all .bsync-snap-* and .bsync-ignore filenames from dir
 def get_bsync_files(sshsock, sshlogin,dirname):
 	files = set()
-	if sshlogin==None:
-		try:
+	try:
+		if sshlogin==None:
 			for f in os.listdir(dirname):
 				if f.startswith(".bsync-"):
 					files.add(f)
-		except:
-			sys.exit("Error: could not open directory: "+dirname)
-	else:
-		try:
+		else:
 			out = subprocess.check_output([ "ssh", "-S"+sshsock, sshlogin, "[ -r "+shlex.quote(dirname)+" ] && cd "+shlex.quote(dirname)+" 2>/dev/null && ( ls -1 .bsync-* 2>/dev/null || true )" ], universal_newlines=True)
-		except subprocess.CalledProcessError:
-			sys.exit("Error: could not open remote directory: "+dirname)
+	except:
+		sys.exit("Error: could not open directory: "+getdirstr(sshlogin,dirname)+" (is it created?)")
 		
 		files = set( out.split("\n") )
 
