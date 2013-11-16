@@ -195,10 +195,9 @@ def get_bsync_files(sshsock, sshlogin,dirname):
 					files.add(f)
 		else:
 			out = subprocess.check_output([ "ssh", "-S"+sshsock, sshlogin, "[ -r "+shlex.quote(dirname)+" ] && cd "+shlex.quote(dirname)+" 2>/dev/null && ( ls -1 .bsync-* 2>/dev/null || true )" ], universal_newlines=True)
+			files = set( out.split("\n") )
 	except:
 		sys.exit("Error: could not open directory: "+getdirstr(sshlogin,dirname)+" (is it created?)")
-		
-		files = set( out.split("\n") )
 
 	snaps = set()
 	ignorefile = None
@@ -381,12 +380,15 @@ def getfilemode(type, perms):
 
 # ask the user about conflicting changes
 # conflict can be on type, date, size, perms
-def ask_conflict(f1, f2, path):
+def ask_conflict(f1, f2, path, tokeep):
+	if tokeep=="1a" or tokeep=="2a":
+		return tokeep
+
 	if f1 == None:
 		p1 = "*deleted*"
-		p2 = f2.type+" "+f2.perms+" "+f2.size+" ("+getdatestr(f2)+")"
+		p2 = " "+getfilemode(f2.type, f2.perms)+" "+f2.size+"B ("+getdatestr(f2)+")"
 	elif f2 == None:
-		p1 = f1.type+" "+f1.perms+" "+f1.size+" ("+getdatestr(f1)+")"
+		p1 = " "+getfilemode(f1.type, f1.perms)+" "+f1.size+"B ("+getdatestr(f1)+")"
 		p2 = "*deleted*"
 	else:
 		p1=p2=""
@@ -404,12 +406,18 @@ def ask_conflict(f1, f2, path):
 			p1+= " ("+getdatestr(f1)+")"
 			p2+= " ("+getdatestr(f2)+")"
 
-	print("Conflicting changes on: "+path)
-	print_action("conflict", p1, "???", p2)
+	print("\nConflicting changes on: "+path)
+	print_action("conflict", p1, "<?>", p2)
 
-	resp = "invalid"
-	while resp != "1" and resp != "2":
-		resp = input("Which change do I keep [1/2]: ")
+	resp = None
+	while resp!="1" and resp!="2" and resp!="1a" and resp!="2a":
+		if resp!=None:
+			print("	1	Keep left version")
+			print("	2	Keep right version")
+			print("	1a	Keep left version for all")
+			print("	2a	Keep right version for all")
+		resp = input("Which one do I keep [1/2/?] ")
+			
 	return resp
 
 #### file actions
@@ -714,6 +722,7 @@ copy12 = []
 copy21 = []
 sync12 = []
 sync21 = []
+tokeep = None
 # process all original paths (from snapshot)
 for path, fo in origlist.items():
 	# f1==None f2==None				deleted both sides
@@ -761,8 +770,8 @@ for path, fo in origlist.items():
 		# f1 == None and f2 != None
 		# f1 != None and f2 == None
 
-		tokeep = ask_conflict(f1, f2, path);
-		if tokeep == "1":
+		tokeep = ask_conflict(f1, f2, path, tokeep);
+		if tokeep[0] == "1": #1 or 1a
 			if f1 == None:
 				if f2.type == "d": # f2 isdir
 					rmdirs2.append(path)
@@ -812,8 +821,8 @@ for path, f1 in dir1.items():
 			copy12.append(f1)
 	else:
 		# f2!=None and f2.date != f1.date --> conflict
-		tokeep = ask_conflict(f1, f2, path);
-		if tokeep == "1":
+		tokeep = ask_conflict(f1, f2, path, tokeep);
+		if tokeep[0] == "1":
 			sync12.append(path)
 		else: # tokeep == 2
 			sync21.append(path)
@@ -833,8 +842,8 @@ for path, f2 in dir2.items():
 		else:
 			copy21.append(f2)
 	else:
-		tokeep = ask_conflict(f1, f2, path);
-		if tokeep == "1":
+		tokeep = ask_conflict(f1, f2, path, tokeep);
+		if tokeep[0]== "1":
 			sync12.append(path)
 		else: # tokeep == 2
 			sync21.append(path)
