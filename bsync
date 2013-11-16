@@ -416,7 +416,7 @@ def ask_conflict(f1, f2, path, tokeep):
 			print("	2	Keep right version")
 			print("	1a	Keep left version for all")
 			print("	2a	Keep right version for all")
-		resp = input("Which one do I keep [1/2/?] ")
+		resp = myinput("Which one do I keep [1/2/?] ")
 			
 	return resp
 
@@ -636,6 +636,13 @@ def check_moves(copy, rm):
 			copyreal.append(fsrc.path)
 
 	return copyreal, rm, moves
+
+# handle Ctrl+C in prompts
+def myinput(prompt):
+	try:
+		return input(prompt)
+	except KeyboardInterrupt:
+		sys.exit(" ")
 
 def usage():
 	usage = "Usage: bsync [-vi] DIR1 DIR2\n\n"
@@ -871,9 +878,9 @@ print_action("", args[0], "   ", args[1])
 print_actions(2, mkdir2,moves2,rm2,rmdirs2, copy12,sync12)
 print_actions(1, mkdir1,moves1,rm1,rmdirs1, copy21,sync21)
 
-resp = "invalid"
+resp = "none"
 while resp != "y" and resp != "n":
-	resp = input("Apply actions? [y/N] ").lower()
+	resp = myinput("Apply actions? [y/N] ").lower()
 	if resp == "": resp = "n"
 if resp == "n":
 	print("Leaving files in place.")
