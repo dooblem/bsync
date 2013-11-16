@@ -108,6 +108,17 @@ def rsync_check_install(sshsock, sshlogin):
 	if ret != 0:
 		sys.exit("Error: please check that rsync is installed (both local and remote sides)")
 
+def fs_check_noperms(sshsock, sshlogin,dirname):
+	testtmpfile = shlex.quote( dirname+"/.bsync-permtest-"+datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f") )
+	testpermcmd = "umask 777; touch "+testtmpfile+"; [ -r "+testtmpfile+" ]; ret=$?; rm -f "+testtmpfile+"; exit $ret"
+
+	with open(os.devnull, 'w') as devnull:
+		if sshlogin == None:
+			ret = subprocess.call(testpermcmd, shell=True, stdout=devnull,stderr=devnull)
+		else:
+			ret = subprocess.call(["ssh", "-S"+sshsock, sshlogin, testpermcmd])
+	return ret==0
+
 # check with rsync that directories are identical (-c flag)
 def rsync_check(sshsock, sshloginSrc,dirnameSrc, sshloginDst,dirnameDst):
 	if sshloginSrc == None:
@@ -254,6 +265,8 @@ def fileLineIter(inputFile,
    if partialLine: yield partialLine.rstrip('\0') # little mod
 
 def read_file_record(gen):
+	global ignoreperms
+
 	i=p=t=d=s=perms=None
 	try:
 		i,p,t,d,s,perms = next(gen),next(gen),next(gen),next(gen),next(gen),next(gen)
@@ -265,6 +278,7 @@ def read_file_record(gen):
 
 	d = d.split(".")[0]	# truncate date to seconds
 	if t=="d": d=s="0"	# ignore dates/size for dirs (set to zero)
+	if ignoreperms: perms = ""
 
 	return i,p,t,d,s,perms
 
@@ -415,19 +429,25 @@ def removedir(shproc, path):
 # TODO security for shell injection
 def mkdir(shproc, path, perms):
 	if shproc == None:
-		os.mkdir(path, int(perms, 8) )
+		if perms=="":
+			os.mkdir(path)
+		else:
+			os.mkdir(path, int(perms, 8) )
 	else:
-		shproc.stdin.write("mkdir -m"+perms+" "+shlex.quote(path)+"\n")
+		if perms=="":
+			shproc.stdin.write("mkdir "+shlex.quote(path)+"\n")
+		else:
+			shproc.stdin.write("mkdir -m"+perms+" "+shlex.quote(path)+"\n")
 		shproc.stdin.flush()
 
 def move(shproc, src, dst, perms):
 	if shproc == None:
 		os.rename(src, dst)
-		if perms!=None:
+		if perms!="":
 			os.chmod(dst, int(perms, 8) )
 	else:
 		shproc.stdin.write("mv "+shlex.quote(src)+" "+shlex.quote(dst)+"\n")
-		if perms!=None:
+		if perms!="":
 			shproc.stdin.write("chmod "+perms+" "+shlex.quote(dst)+"\n")
 		shproc.stdin.flush()
 
@@ -606,24 +626,28 @@ def check_moves(copy, rm):
 	return copyreal, rm, moves
 
 def usage():
-	usage = "Usage: bsync [-v] DIR1 DIR2"
+	usage = "Usage: bsync [-vi] DIR1 DIR2\n"
+	usage+= "	DIR can be user@sshserver:DIR\n"
+	usage+= "	-v	verbose\n"
+	usage+= "	-i	ignore permissions\n"
 	print(usage , file=sys.stderr)
 
 #####################################################
 
 #### process commandline args
 try:
-	opts, args = getopt.gnu_getopt(sys.argv[1:], "vc")
+	opts, args = getopt.gnu_getopt(sys.argv[1:], "vci")
 except getopt.GetoptError as err:
 	print(err, file=sys.stderr)
 	usage()
 	sys.exit(2)
 
-verbose = False
-check = False
+verbose = check = ignoreperms = False
 for o, a in opts:
 	if o == "-v":
 		verbose = True
+	if o == "-i":
+		ignoreperms = True
 	elif o == "-c":
 		check = True
 	else:
@@ -635,14 +659,6 @@ if len(args) != 2:
 
 dir1name = args[0]
 dir2name = args[1]
-
-# try to get console width, for displaying actions, if running interactive
-try:
-	with open(os.devnull, 'w') as devnull:
-		height, width = subprocess.check_output(['stty', 'size'], universal_newlines=True, stderr=devnull).split()
-	console_width = int(width)
-except:
-	console_width = 0
 
 # get sshlogin vars
 sshlogin = sshlogin1 = sshlogin2 = None
@@ -660,6 +676,18 @@ if sshlogin != None:
 	sshsock = ssh_master_init(sshlogin)
 
 rsync_check_install(sshsock, sshlogin)
+# ignore perms if one fs doesnt support perms (vfat...)
+if not ignoreperms:
+	ignoreperms = fs_check_noperms(sshsock, sshlogin1,dir1name) or fs_check_noperms(sshsock, sshlogin2,dir2name)
+	if ignoreperms: print("Warning: some filesystem has no permission support. Ignoring permissions.")
+
+# try to get console width, for displaying actions, if running interactive
+try:
+	with open(os.devnull, 'w') as devnull:
+		height, width = subprocess.check_output(['stty', 'size'], universal_newlines=True, stderr=devnull).split()
+	console_width = int(width)
+except:
+	console_width = 0
 
 print("Loading filelists...")
 
