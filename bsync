@@ -679,7 +679,7 @@ rsync_check_install(sshsock, sshlogin)
 # ignore perms if one fs doesnt support perms (vfat...)
 if not ignoreperms:
 	ignoreperms = fs_check_noperms(sshsock, sshlogin1,dir1name) or fs_check_noperms(sshsock, sshlogin2,dir2name)
-	if ignoreperms: print("Warning: some filesystem has no permission support. Ignoring permissions.")
+	if ignoreperms: print("Some filesystem has no permission support (fat?). Ignoring permissions.")
 
 # try to get console width, for displaying actions, if running interactive
 try:
