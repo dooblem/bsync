@@ -130,18 +130,23 @@ def rsync_check_install(ssh):
 		sys.exit("Error: please check that rsync is installed (both local and remote sides)")
 
 # check if the filesystem supports permissions
-def fs_check_noperms(ssh, dirname):
+def fs_check_perms(ssh, dirname):
 	testtmpfile = shlex.quote( dirname+"/.bsync-permtest-"+datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f") )
 	# try to create a file with no permissions at all
-	# if the file is still readable, the fs do not support permissions (fat...)
-	testpermcmd = "umask 777; touch "+testtmpfile+"; [ -r "+testtmpfile+" ]; ret=$?; rm -f "+testtmpfile+"; exit $ret"
+	# if the resulting file perms is 0, the fs supports permissions (non fat...)
+	testpermcmd = "umask 777; touch "+testtmpfile+"; [ \"$(stat -c%a "+testtmpfile+")\" = \"0\" ]; ret=$?; rm -f "+testtmpfile+"; exit $ret"
 
 	with open(os.devnull, 'w') as devnull:
 		if ssh == None:
 			ret = subprocess.call(testpermcmd, shell=True, stdout=devnull,stderr=devnull)
 		else:
 			ret = subprocess.call(ssh.getcmdlist()+[testpermcmd], stdout=devnull,stderr=devnull)
-	return ret==0
+
+	if ret==0:
+		return True
+	else:
+		print(getdirstr(ssh,dirname)+" has no permission support (fat?). Ignoring permissions.")
+		return False
 
 # check with rsync that directories are identical (-c flag)
 def rsync_check(sshSrc,dirnameSrc, sshDst,dirnameDst):
@@ -713,8 +718,7 @@ if ssh != None:
 rsync_check_install(ssh)
 # ignore perms if one fs doesnt support perms (vfat...)
 if not ignoreperms:
-	ignoreperms = fs_check_noperms(ssh1,dir1name) or fs_check_noperms(ssh2,dir2name)
-	if ignoreperms: print("Some filesystem has no permission support (fat?). Ignoring permissions.")
+	ignoreperms = not (fs_check_perms(ssh1,dir1name) and fs_check_perms(ssh2,dir2name))
 
 # try to get console width, for displaying actions, if running interactive
 try:
