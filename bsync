@@ -40,6 +40,25 @@ class DirFile():
 		self.size = size
 		self.perms = perms
 
+class SshCon():
+	def __init__(self, userhost):
+		self.userhost = userhost
+		self.sock = None
+		self.port = None
+
+	def getcmdlist(self):
+		port = ["-p"+self.port] if self.port!=None else []
+		return ["ssh", "-S"+self.sock]+port+[self.userhost]
+
+	def getcmdstr(self):
+		return joinargs(self.getcmdlist())
+
+def joinargs(arglist):
+	cmd = ""
+	for arg in arglist:
+		cmd+= " "+shlex.quote(arg)+" "
+	return cmd
+
 def samefiles(f1, f2):
 	# only take size in account for regular files
 	if f1.type == "f" and f2.type == "f":
@@ -47,24 +66,24 @@ def samefiles(f1, f2):
 	else:
 		return f1.type==f2.type and f1.date==f2.date and f1.perms==f2.perms
 
-def ssh_master_init(sshlogin):
+def ssh_master_init(ssh):
 	import tempfile, atexit
 	tmpdir = tempfile.mkdtemp()
-	sshsock = os.path.join(tmpdir, "bsync_%r@%h:%p")
+	ssh.sock = os.path.join(tmpdir, "bsync_%r@%h:%p")
 	try:
-		subprocess.check_call(["ssh", "-fNMS", sshsock, sshlogin])
+		subprocess.check_call( ssh.getcmdlist()+["-fNM"] )
 	except subprocess.CalledProcessError:
 		sys.exit("Error: could not open SSH connection.")
 	except FileNotFoundError:
 		sys.exit("Error: ssh is not installed.")
 
-	atexit.register(ssh_master_clean, tmpdir, sshsock, sshlogin)
-	return sshsock
+	atexit.register(ssh_master_clean, tmpdir, ssh)
+	return ssh
 
-def ssh_master_clean(tmpdir, sshsock, sshlogin):
+def ssh_master_clean(tmpdir, ssh):
 	# send exit signal to ssh master, this will remove the socket
 	printv("Cleaning SSH master...")
-	ret = subprocess.call(["ssh", "-S", sshsock, "-Oexit", sshlogin], stderr=subprocess.DEVNULL)
+	ret = subprocess.call(ssh.getcmdlist()+["-Oexit"], stderr=subprocess.DEVNULL)
 	if ret != 0:
 	        print("Error in ssh master exit cmd." , file=sys.stderr)
 		
@@ -80,28 +99,30 @@ def ssh_master_clean(tmpdir, sshsock, sshlogin):
 findformat = "%i\\0%P\\0%y\\0%T@\\0%s\\0%#m\\0"
 # find test1/ -printf "%i\t%P\t%y\t%T@\t%s\t%#m\n"
 
-def ssh_shell_init(sshsock, sshlogin):
-	return subprocess.Popen([ "ssh", "-S"+sshsock, sshlogin, "sh -e" ], stdin=subprocess.PIPE, universal_newlines=True)
+def ssh_shell_init(ssh):
+	return subprocess.Popen(ssh.getcmdlist()+["sh -e"], stdin=subprocess.PIPE, universal_newlines=True)
 
-def rsync_init(sshsock, sshloginSrc,dirnameSrc, sshloginDst,dirnameDst):
+def rsync_init(sshSrc,dirnameSrc, sshDst,dirnameDst):
 	#rsync ssh/dir1 --> local/dir2
 	#rsync local/dir1 --> ssh/dir2
 	#
 	#rsync ssh/dir2 --> local/dir1
 	#rsync local/dir2 --> ssh/dir1
-	rsyncsrc = getdirstr(sshloginSrc, dirnameSrc)+"/"
-	rsyncdst = getdirstr(sshloginDst, dirnameDst)+"/"
+	rsyncsrc = getdirstr(sshSrc, dirnameSrc)+"/"
+	rsyncdst = getdirstr(sshDst, dirnameDst)+"/"
 
 	args = [ "-a", "--files-from=-", "--from0", "--no-implied-dirs", "--out-format=rsync: %n%L" ]
-	if sshsock != None:
-		args.append("-e ssh -S"+sshsock)
+	if ssh != None:
+		cmdlist = ssh.getcmdlist()
+		cmdlist.remove(ssh.userhost)
+		args.append("-e "+joinargs(cmdlist))
 
 	return subprocess.Popen(["rsync"]+args+[rsyncsrc, rsyncdst], stdin=subprocess.PIPE, universal_newlines=True)
 
-def rsync_check_install(sshsock, sshlogin):
+def rsync_check_install(ssh):
 	remote_check = ""
-	if sshlogin != None:
-		remote_check = " && ssh -S"+sshsock+" "+shlex.quote(sshlogin)+" which rsync"
+	if ssh != None:
+		remote_check = " && "+ssh.getcmdstr()+" which rsync"
 
 	with open(os.devnull, 'w') as devnull:
 		ret = subprocess.call("which rsync"+remote_check, shell=True, stdout=devnull, stderr=devnull)
@@ -109,33 +130,27 @@ def rsync_check_install(sshsock, sshlogin):
 		sys.exit("Error: please check that rsync is installed (both local and remote sides)")
 
 # check if the filesystem supports permissions
-def fs_check_noperms(sshsock, sshlogin,dirname):
+def fs_check_noperms(ssh, dirname):
 	testtmpfile = shlex.quote( dirname+"/.bsync-permtest-"+datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f") )
 	# try to create a file with no permissions at all
 	# if the file is still readable, the fs do not support permissions (fat...)
 	testpermcmd = "umask 777; touch "+testtmpfile+"; [ -r "+testtmpfile+" ]; ret=$?; rm -f "+testtmpfile+"; exit $ret"
 
 	with open(os.devnull, 'w') as devnull:
-		if sshlogin == None:
+		if ssh == None:
 			ret = subprocess.call(testpermcmd, shell=True, stdout=devnull,stderr=devnull)
 		else:
-			ret = subprocess.call(["ssh", "-S"+sshsock, sshlogin, testpermcmd], stdout=devnull,stderr=devnull)
+			ret = subprocess.call(ssh.getcmdlist()+[testpermcmd], stdout=devnull,stderr=devnull)
 	return ret==0
 
 # check with rsync that directories are identical (-c flag)
-def rsync_check(sshsock, sshloginSrc,dirnameSrc, sshloginDst,dirnameDst):
-	if sshloginSrc == None:
-		rsyncsrc = dirnameSrc+"/"
-	else:
-		rsyncsrc = sshloginSrc+":"+dirnameSrc+"/"
-	if sshloginDst == None:
-		rsyncdst = dirnameDst+"/"
-	else:
-		rsyncdst = sshloginDst+":"+dirnameDst+"/"
+def rsync_check(sshSrc,dirnameSrc, sshDst,dirnameDst):
+	rsyncsrc = getdirstr(sshSrc, dirnameSrc)+"/"
+	rsyncdst = getdirstr(sshDst, dirnameDst)+"/"
 
 	args = [ "-anO", "--delete", "--out-format=%n%L", "--exclude=/.bsync-snap-*" ]
-	if sshsock != None:
-		args.append("-e ssh -S"+sshsock)
+	if ssh != None:
+		args.append("-e "+ssh.getcmdstr())
 
 	diff = subprocess.check_output(["rsync"]+args+[rsyncsrc, rsyncdst], universal_newlines=True).split("\n")
 
@@ -147,7 +162,7 @@ def rsync_check(sshsock, sshloginSrc,dirnameSrc, sshloginDst,dirnameDst):
 
 # take a snapshot of files states from dir, using find. store it in .bsync-snap-XXXX
 # snap format: inode, path, type, date...
-def make_snapshot(sshsock, sshlogin,dirname, oldsnapname, newsnapname):
+def make_snapshot(ssh,dirname, oldsnapname, newsnapname):
 	global findformat
 
 	cmd = "find %s -fprintf %s '%s'" % (shlex.quote(dirname), shlex.quote(dirname+"/"+newsnapname), findformat)
@@ -156,48 +171,48 @@ def make_snapshot(sshsock, sshlogin,dirname, oldsnapname, newsnapname):
 	# remove inconsistent newsnap if error in find
 	cmd+= " || ( rm -f "+shlex.quote(dirname+"/"+newsnapname)+" && false )"
 
-	if sshlogin==None:
+	if ssh==None:
 		ret = subprocess.call(cmd, shell=True)
 	else:
-		ret = subprocess.call([ "ssh", "-S"+sshsock, sshlogin, cmd])
+		ret = subprocess.call(ssh.getcmdlist()+[cmd])
 
 	if ret != 0: sys.exit("Error making a snapshot.")
 
-def make_snapshots(sshsock, sshlogin1,dir1name, sshlogin2,dir2name, oldsnapname):
+def make_snapshots(ssh1,dir1name, ssh2,dir2name, oldsnapname):
 	newsnapname = ".bsync-snap-"+datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")
 	print("Updating filelists...")
 	printv("Updating snap files: "+newsnapname+"...")
-	make_snapshot(sshsock, sshlogin1,dir1name, oldsnapname,newsnapname)
-	make_snapshot(sshsock, sshlogin2,dir2name, oldsnapname,newsnapname)
+	make_snapshot(ssh1,dir1name, oldsnapname,newsnapname)
+	make_snapshot(ssh2,dir2name, oldsnapname,newsnapname)
 
 # run find in a directory to dump its content
-def get_find_proc(sshsock, sshlogin, dirname):
+def get_find_proc(ssh, dirname):
 	global findformat
-	if sshlogin==None:
+	if ssh==None:
 		return subprocess.Popen([ "find", dirname, "-printf", findformat ], stdout=subprocess.PIPE, universal_newlines=True)
 	else:
-		return subprocess.Popen([ "ssh", "-S"+sshsock, sshlogin, "find "+shlex.quote(dirname)+" -printf '"+findformat+"'" ], stdout=subprocess.PIPE, universal_newlines=True)
+		return subprocess.Popen(ssh.getcmdlist()+["find "+shlex.quote(dirname)+" -printf '"+findformat+"'" ], stdout=subprocess.PIPE, universal_newlines=True)
 
 # get a file descriptor to read the snapshot file
-def get_snap_fd(sshsock, sshlogin, dirname, snapname):
-	if sshlogin==None:
+def get_snap_fd(ssh, dirname, snapname):
+	if ssh==None:
 		return open(dirname+"/"+snapname, "r")
 	else:
-		return subprocess.Popen([ "ssh", "-S"+sshsock, sshlogin, "cat "+shlex.quote(dirname+"/"+snapname) ], stdout=subprocess.PIPE, universal_newlines=True).stdout
+		return subprocess.Popen(ssh.getcmdlist()+ [ "cat "+shlex.quote(dirname+"/"+snapname) ], stdout=subprocess.PIPE, universal_newlines=True).stdout
 
 # returns all .bsync-snap-* and .bsync-ignore filenames from dir
-def get_bsync_files(sshsock, sshlogin,dirname):
+def get_bsync_files(ssh, dirname):
 	files = set()
 	try:
-		if sshlogin==None:
+		if ssh==None:
 			for f in os.listdir(dirname):
 				if f.startswith(".bsync-"):
 					files.add(f)
 		else:
-			out = subprocess.check_output([ "ssh", "-S"+sshsock, sshlogin, "[ -r "+shlex.quote(dirname)+" ] && cd "+shlex.quote(dirname)+" 2>/dev/null && ( ls -1 .bsync-* 2>/dev/null || true )" ], universal_newlines=True)
+			out = subprocess.check_output(ssh.getcmdlist()+["[ -r "+shlex.quote(dirname)+" ] && cd "+shlex.quote(dirname)+" 2>/dev/null && ( ls -1 .bsync-* 2>/dev/null || true )" ], universal_newlines=True)
 			files = set( out.split("\n") )
 	except:
-		sys.exit("Error: could not open directory: "+getdirstr(sshlogin,dirname)+" (is it created?)")
+		sys.exit("Error: could not open directory: "+getdirstr(ssh,dirname)+" (is it created?)")
 
 	snaps = set()
 	ignorefile = None
@@ -210,14 +225,14 @@ def get_bsync_files(sshsock, sshlogin,dirname):
 	return snaps, ignorefile
 
 # get ignore entries from .bsync-ignore file
-def get_ignores(ignorefile, sshsock, sshlogin,dirname):
+def get_ignores(ignorefile, ssh,dirname):
 	if ignorefile == None: return set()
 
-	if sshlogin==None:
+	if ssh==None:
 		with open(dirname+"/"+ignorefile) as fd:
 			out = fd.read()
 	else:
-		out = subprocess.check_output([ "ssh", "-S"+sshsock, sshlogin, "cat "+shlex.quote(dirname+"/"+ignorefile) ], universal_newlines=True)
+		out = subprocess.check_output(ssh.getcmdlist()+[ "cat "+shlex.quote(dirname+"/"+ignorefile) ], universal_newlines=True)
 
 	lines = out.split("\n")
 
@@ -282,12 +297,12 @@ def read_file_record(gen):
 	return i,p,t,d,s,perms
 
 # load original file records from snapshots, and ignore entries
-def load_orig(sshsock, sshlogin1,dir1name, sshlogin2,dir2name):
-	snaps1, ignorefile1 = get_bsync_files(sshsock, sshlogin1,dir1name)
-	snaps2, ignorefile2 = get_bsync_files(sshsock, sshlogin2,dir2name)
+def load_orig(ssh1,dir1name, ssh2,dir2name):
+	snaps1, ignorefile1 = get_bsync_files(ssh1,dir1name)
+	snaps2, ignorefile2 = get_bsync_files(ssh2,dir2name)
 
-	ignores1 = get_ignores(ignorefile1, sshsock, sshlogin1,dir1name)
-	ignores2 = get_ignores(ignorefile2, sshsock, sshlogin2,dir2name)
+	ignores1 = get_ignores(ignorefile1, ssh1,dir1name)
+	ignores2 = get_ignores(ignorefile2, ssh2,dir2name)
 	ignores = ignores1 | ignores2
 
 	common_snaps = snaps1.intersection(snaps2)
@@ -300,8 +315,8 @@ def load_orig(sshsock, sshlogin1,dir1name, sshlogin2,dir2name):
 
 	printv("Loading "+snapname+"...")
 
-	fd1 = get_snap_fd(sshsock, sshlogin1, dir1name, snapname)
-	fd2 = get_snap_fd(sshsock, sshlogin2, dir2name, snapname)
+	fd1 = get_snap_fd(ssh1, dir1name, snapname)
+	fd2 = get_snap_fd(ssh2, dir2name, snapname)
 	gen1 = fileLineIter(fd1, inputNewline='\0')
 	gen2 = fileLineIter(fd2, inputNewline='\0')
 
@@ -339,14 +354,14 @@ def load_orig(sshsock, sshlogin1,dir1name, sshlogin2,dir2name):
 
 	return snapname, orig, ignores
 
-def getdirstr(sshlogin,dirname):
-	return dirname if sshlogin==None else sshlogin+":"+dirname
+def getdirstr(ssh,dirname):
+	return dirname if ssh==None else ssh.userhost+":"+dirname
 
 # load actual directory content
-def load_dir(sshsock, sshlogin, dirname, ignores):
+def load_dir(ssh, dirname, ignores):
 	dir = collections.OrderedDict()
 
-	proc = get_find_proc(sshsock, sshlogin, dirname)
+	proc = get_find_proc(ssh, dirname)
 	fd = proc.stdout
 	gen = fileLineIter(fd, inputNewline='\0')
 
@@ -362,7 +377,7 @@ def load_dir(sshsock, sshlogin, dirname, ignores):
 	fd.close()
 	proc.wait()
 	if proc.returncode != 0:
-		sys.exit("Find Error in "+getdirstr(sshlogin,dirname))
+		sys.exit("Find Error in "+getdirstr(ssh,dirname))
 	
 	return dir
 
@@ -541,23 +556,20 @@ def print_actions(dirnum, mkdirs,moves,rm,rmdirs, copy,sync):
 			print_action("sync", path, "<--", path)
 # end print_actions
 
-def apply_actions(dirnum, sshsock,
-	sshlogin1,dir1name, sshlogin2,dir2name,
-	mkdirs, moves, rm, rmdirs, copy, sync
-	):
+def apply_actions(dirnum, ssh1,dir1name,ssh2,dir2name, mkdirs,moves,rm,rmdirs,copy,sync):
 
 	##### actions involving one side
-	sshlogin = sshlogin2
+	ssh = ssh2
 	arrow = "-->"
 	if dirnum==1:
-		sshlogin = sshlogin1
+		ssh = ssh1
 		arrow = "<--"
 
 	shproc = None
 	# if we need a ssh shell
-	if ( (dirnum==2 and sshlogin2!=None) or (dirnum==1 and sshlogin1!=None) ) \
+	if ( (dirnum==2 and ssh2!=None) or (dirnum==1 and ssh1!=None) ) \
 	   and ( mkdirs!=[] or copy!=[] or rmdirs!=[] or len(rm)!=0 ):
-		shproc = ssh_shell_init(sshsock, sshlogin)
+		shproc = ssh_shell_init(ssh)
 
 	# mkdirss must be done before
 	os.umask(0000) #disable umask to allow for any mkdirs
@@ -600,9 +612,9 @@ def apply_actions(dirnum, sshsock,
 	# if we need rsync (at least one remote dir, and some copies/sync to do)
 	if copy!=[] or sync!=[]:
 		if dirnum==2:
-			rsyncproc = rsync_init(sshsock, sshlogin1,dir1name, sshlogin2,dir2name)
+			rsyncproc = rsync_init(ssh1,dir1name, ssh2,dir2name)
 		else:
-			rsyncproc = rsync_init(sshsock, sshlogin2,dir2name, sshlogin1,dir1name)
+			rsyncproc = rsync_init(ssh2,dir2name, ssh1,dir1name)
 
 	# finish with copy and sync
 	for path in copy:
@@ -647,21 +659,23 @@ def myinput(prompt):
 def usage():
 	usage = "Usage: bsync [-vi] DIR1 DIR2\n\n"
 	usage+= "	DIR can be user@sshserver:DIR\n"
-	usage+= "	-v	verbose\n"
-	usage+= "	-i	ignore permissions\n"
+	usage+= "	-v	Verbose\n"
+	usage+= "	-i	Ignore permissions\n"
+	usage+= "	-p PORT	Port for SSH\n"
 	print(usage , file=sys.stderr)
 
 #####################################################
 
 #### process commandline args
 try:
-	opts, args = getopt.gnu_getopt(sys.argv[1:], "vci")
+	opts, args = getopt.gnu_getopt(sys.argv[1:], "vcip:")
 except getopt.GetoptError as err:
 	print(err, file=sys.stderr)
 	usage()
 	sys.exit(2)
 
 verbose = check = ignoreperms = False
+sshport = None
 for o, a in opts:
 	if o == "-v":
 		verbose = True
@@ -669,6 +683,8 @@ for o, a in opts:
 		ignoreperms = True
 	elif o == "-c":
 		check = True
+	elif o == "-p":
+		sshport = a
 	else:
 		assert False, "unhandled option"
 
@@ -679,25 +695,25 @@ if len(args) != 2:
 dir1name = args[0]
 dir2name = args[1]
 
-# get sshlogin vars
-sshlogin = sshlogin1 = sshlogin2 = None
+# get ssh connection
+ssh = ssh1 = ssh2 = None
 if ':' in dir1name:
-	sshlogin1, dir1name = dir1name.split(':', 1)
-	sshlogin = sshlogin1
+	sshuserhost, dir1name = dir1name.split(':', 1)
+	ssh = ssh1 = SshCon(sshuserhost)
 if ':' in dir2name:
-	sshlogin2, dir2name = dir2name.split(':', 1)
-	sshlogin = sshlogin2
-if sshlogin1!=None and sshlogin2!=None:
+	sshuserhost, dir2name = dir2name.split(':', 1)
+	ssh = ssh2 = SshCon(sshuserhost)
+if ssh1!=None and ssh2!=None:
 	sys.exit("Error: only one remote directory supported.")
 
-sshsock = None
-if sshlogin != None:
-	sshsock = ssh_master_init(sshlogin)
+if ssh != None:
+	ssh.port = sshport
+	ssh = ssh_master_init(ssh)
 
-rsync_check_install(sshsock, sshlogin)
+rsync_check_install(ssh)
 # ignore perms if one fs doesnt support perms (vfat...)
 if not ignoreperms:
-	ignoreperms = fs_check_noperms(sshsock, sshlogin1,dir1name) or fs_check_noperms(sshsock, sshlogin2,dir2name)
+	ignoreperms = fs_check_noperms(ssh1,dir1name) or fs_check_noperms(ssh2,dir2name)
 	if ignoreperms: print("Some filesystem has no permission support (fat?). Ignoring permissions.")
 
 # try to get console width, for displaying actions, if running interactive
@@ -711,12 +727,12 @@ except:
 print("Loading filelists...")
 
 printv("Loading original filelist from snap files...")
-snapname, origlist, ignores = load_orig(sshsock, sshlogin1,dir1name, sshlogin2,dir2name)
+snapname, origlist, ignores = load_orig(ssh1,dir1name, ssh2,dir2name)
 
 printv("Loading dir1 filelist...")
-dir1 = load_dir(sshsock, sshlogin1, dir1name, ignores)
+dir1 = load_dir(ssh1, dir1name, ignores)
 printv("Loading dir2 filelist...")
-dir2 = load_dir(sshsock, sshlogin2, dir2name, ignores)
+dir2 = load_dir(ssh2, dir2name, ignores)
 
 printv("Analysing original paths...")
 mkdir1 = []
@@ -868,10 +884,10 @@ rmdirs2.sort(reverse=True) # TODO someth cleaner than sort?
 # if no action to do
 if len(mkdir1)==0 and len(moves1)==0 and len(rm1)==0 and len(rmdirs1)==0 and len(copy21)==0 and len(sync21)==0 and \
    len(mkdir2)==0 and len(moves2)==0 and len(rm2)==0 and len(rmdirs2)==0 and len(copy12)==0 and len(sync12)==0:
-	if check: rsync_check(sshsock, sshlogin1,dir1name, sshlogin2,dir2name)
+	if check: rsync_check(ssh1,dir1name, ssh2,dir2name)
 	print("Identical directories. Nothing to do.")
 	if snapname == None:
-		make_snapshots(sshsock, sshlogin1,dir1name, sshlogin2,dir2name, snapname)
+		make_snapshots(ssh1,dir1name, ssh2,dir2name, snapname)
 	sys.exit()
 
 print_action("", args[0], "   ", args[1])
@@ -889,19 +905,13 @@ if resp == "n":
 print("Applying actions...")
 
 printv("Applying actions in dir2...")
-apply_actions(2, sshsock,
-	sshlogin1,dir1name, sshlogin2,dir2name,
-	mkdir2,moves2,rm2,rmdirs2, copy12,sync12
-	)
+apply_actions(2, ssh1,dir1name,ssh2,dir2name, mkdir2,moves2,rm2,rmdirs2,copy12,sync12)
 
 printv("Applying actions in dir1...")
-apply_actions(1, sshsock,
-	sshlogin1,dir1name, sshlogin2,dir2name,
-	mkdir1,moves1,rm1,rmdirs1, copy21,sync21
-	)
+apply_actions(1, ssh1,dir1name,ssh2,dir2name, mkdir1,moves1,rm1,rmdirs1,copy21,sync21)
 
-if check: rsync_check(sshsock, sshlogin1,dir1name, sshlogin2,dir2name)
+if check: rsync_check(ssh1,dir1name, ssh2,dir2name)
 
-make_snapshots(sshsock, sshlogin1,dir1name, sshlogin2,dir2name, snapname)
+make_snapshots(ssh1,dir1name, ssh2,dir2name, snapname)
 
 print("Done!")
