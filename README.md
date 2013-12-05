@@ -88,3 +88,7 @@ Say, if I have a `dir1/.bsync-ignore` file with content:
     path/to/ignorefile
 
 `dir1/path/to/ignoredir` (+content) and `dir1/path/to/ignorefile` will be ignored in the next bsync runs.
+
+### See also
+
+[My blog](http://positon.org)
