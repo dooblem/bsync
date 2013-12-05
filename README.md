@@ -3,13 +3,13 @@ bsync
 
 Bsync is a bidirectional file synchronization tool, using rsync for transfers. __Moved files__ are also synchronized in a smart way.
 
-It uses __rsync__ for file transfers, __find__ to generate filelist snapshots, and __ssh__ for remote transfers.
+It uses [rsync](http://rsync.samba.org) for file transfers, [find](http://www.gnu.org/software/findutils/) to generate filelist snapshots, and [ssh](http://www.openssh.com/) for remote transfers.
 
-bsync is an alternative to Unison, written in __Python 3__. A big strength of bsync: it can detect and apply moved files from one side to the other (Unison uses some copy calls to handle moved files).
+bsync is an alternative to Unison, written in [Python 3](http://www.python.org/). A big strength of bsync: it can detect and apply moved files from one side to the other (Unison uses some copy calls to handle moved files).
 
-I developped it to be able to synchronize my music directory from my laptop to my Raspberry Pi in an efficient way, and to sync with my girlfriend laptop too.
+I developped it to be able to synchronize my music directory from my laptop to my [Raspberry Pi](http://www.raspberrypi.org/) in an efficient way, and to sync with my girlfriend laptop too.
 
-Bsync is released under GPLv3. Feel free to report any bugs/wishes in [GitHub issues](https://github.com/dooblem/bsync/issues).
+Bsync is released under GPL. Feel free to report any bugs/wishes in [GitHub issues](https://github.com/dooblem/bsync/issues).
 
 
 Install
