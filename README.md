@@ -76,6 +76,32 @@ Example
     Loading filelists...
     Identical directories. Nothing to do.
     
+Conflict handling
+-----------------
+
+Bsync prompts the user for conflicts.
+
+A sample run with a conflict: file deleted one side and updated the other side.
+
+    $ bsync dir1/ dir2/
+    Loading filelists...
+
+    Conflicting changes on: testfile
+    *deleted*                           <?>   -rw-r--r-- 7B (2014-01-30 18:47:40) (conflict)
+    Which one do I keep [1/2/?] ?
+    	1	Keep left version
+    	2	Keep right version
+    	1a	Keep left version for all
+    	2a	Keep right version for all
+    Which one do I keep [1/2/?] 2
+    dir1/                                    dir2/                               
+                                        <--  testfile                            (copy)
+    Apply actions? [y/N] y
+    Applying actions...
+    rsync: testfile
+    Updating filelists...
+    Done!
+    
 .bsync-ignore files
 -------------------
 
