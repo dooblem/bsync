@@ -316,8 +316,15 @@ def read_file_record(gen):
 
 # load original file records from snapshots, and ignore entries
 def load_orig(ssh1,dir1name, ssh2,dir2name):
+	global ignoreperms
+
 	snaps1, ignorefile1 = get_bsync_files(ssh1,dir1name)
 	snaps2, ignorefile2 = get_bsync_files(ssh2,dir2name)
+
+	# ignore perms if one fs doesnt support perms (vfat...)
+	# check is done after checking if directories are present
+	if not ignoreperms:
+		ignoreperms = not (fs_check_perms(ssh1,dir1name) and fs_check_perms(ssh2,dir2name))
 
 	ignores1 = get_ignores(ignorefile1, ssh1,dir1name)
 	ignores2 = get_ignores(ignorefile2, ssh2,dir2name)
@@ -729,9 +736,6 @@ if ssh != None:
 	ssh = ssh_master_init(ssh)
 
 rsync_check_install(ssh)
-# ignore perms if one fs doesnt support perms (vfat...)
-if not ignoreperms:
-	ignoreperms = not (fs_check_perms(ssh1,dir1name) and fs_check_perms(ssh2,dir2name))
 
 # try to get console width, for displaying actions, if running interactive
 try:
