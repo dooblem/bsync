@@ -1,13 +1,15 @@
 bsync
 =====
 
-Bidirectional synchronization using rsync, handling moved files
+Bsync is a bidirectional file synchronization tool, using rsync for transfers. __Moved files__ are also synchronized in a smart way.
 
-It uses __rsync__ for file transfers, __find__ to generate filelist snapshots, and __ssh__ for remote transfers.
+It uses [rsync](http://rsync.samba.org) for file transfers, [find](http://www.gnu.org/software/findutils/) to generate filelist snapshots, and [ssh](http://www.openssh.com/) for remote transfers.
 
-bsync is an alternative to Unison, written in Python 3. A big strength of bsync: it can detect and apply moved files from one side to the other (Unison uses some copy calls to handle moved files).
+bsync is an alternative to Unison, written in [Python 3](http://www.python.org/). A big strength of bsync: it can detect and apply moved files from one side to the other (Unison uses some copy calls to handle moved files).
 
-I developped it to be able to synchronize my music directory from my laptop to my Raspberry Pi in an efficient way, and to sync with my girlfriend laptop too.
+I developped it to be able to synchronize my music directory from my laptop to my [Raspberry Pi](http://www.raspberrypi.org/) in an efficient way, and to sync with my girlfriend laptop too.
+
+Bsync is released under GPL. Feel free to report any bugs/wishes in [GitHub issues](https://github.com/dooblem/bsync/issues).
 
 
 Install
@@ -49,6 +51,8 @@ Limitations:
 * files ownership ignored (would matter if syncing from root user, but sufficient for regular users)
 * no subdir conflict detection (a bit like in git where only files matter, no conflict is detected if dir1/dir/
   removed and dir2/dir/file created the other side)
+* No Windows support
+* Not tested under MacOSX, OpenBSD, FreeBSD.
 
 Example
 -------
@@ -72,6 +76,32 @@ Example
     Loading filelists...
     Identical directories. Nothing to do.
     
+Conflict handling
+-----------------
+
+Bsync prompts the user for conflicts.
+
+A sample run with a conflict: file deleted one side and updated the other side.
+
+    $ bsync dir1/ dir2/
+    Loading filelists...
+
+    Conflicting changes on: testfile
+    *deleted*                           <?>   -rw-r--r-- 7B (2014-01-30 18:47:40) (conflict)
+    Which one do I keep [1/2/?] ?
+    	1	Keep left version
+    	2	Keep right version
+    	1a	Keep left version for all
+    	2a	Keep right version for all
+    Which one do I keep [1/2/?] 2
+    dir1/                                    dir2/                               
+                                        <--  testfile                            (copy)
+    Apply actions? [y/N] y
+    Applying actions...
+    rsync: testfile
+    Updating filelists...
+    Done!
+    
 .bsync-ignore files
 -------------------
 
@@ -84,3 +114,7 @@ Say, if I have a `dir1/.bsync-ignore` file with content:
     path/to/ignorefile
 
 `dir1/path/to/ignoredir` (+content) and `dir1/path/to/ignorefile` will be ignored in the next bsync runs.
+
+### See also
+
+[My blog](http://positon.org)
