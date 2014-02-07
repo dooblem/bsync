@@ -19,6 +19,19 @@
 
 import os, sys, shutil, subprocess, collections, time, datetime, shlex, getopt, stat
 
+# from python3.3 tree: Lib/shlex.py (shlex.quote not in python3.2)
+import re
+_find_unsafe = re.compile(r'[^\w@%+=:,./-]', re.ASCII).search
+def quote(s):
+    """Return a shell-escaped version of the string *s*."""
+    if not s:
+        return "''"
+    if _find_unsafe(s) is None:
+        return s
+    # use single quotes, and put single quotes into double quotes
+    # the string $'b is then quoted as '$'"'"'b'
+    return "'" + s.replace("'", "'\"'\"'") + "'"
+
 # a file record from snapshots (original file)
 class OrigFile():
 	def __init__(self, inode1,inode2, path,type,date,size,perms):
@@ -56,7 +69,7 @@ class SshCon():
 def joinargs(arglist):
 	cmd = ""
 	for arg in arglist:
-		cmd+= " "+shlex.quote(arg)+" "
+		cmd+= " "+quote(arg)+" "
 	return cmd
 
 def samefiles(f1, f2):
@@ -131,7 +144,7 @@ def rsync_check_install(ssh):
 
 # check if the filesystem supports permissions
 def fs_check_perms(ssh, dirname):
-	testtmpfile = shlex.quote( dirname+"/.bsync-permtest-"+datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f") )
+	testtmpfile = quote( dirname+"/.bsync-permtest-"+datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f") )
 	# try to create a file with no permissions at all
 	# if the resulting file perms is 0, the fs supports permissions (non fat...)
 	testpermcmd = "umask 777; touch "+testtmpfile+"; [ \"$(stat -c%a "+testtmpfile+")\" = \"0\" ]; ret=$?; rm -f "+testtmpfile+"; exit $ret"
@@ -170,11 +183,11 @@ def rsync_check(sshSrc,dirnameSrc, sshDst,dirnameDst):
 def make_snapshot(ssh,dirname, oldsnapname, newsnapname):
 	global findformat
 
-	cmd = "find %s -fprintf %s '%s'" % (shlex.quote(dirname), shlex.quote(dirname+"/"+newsnapname), findformat)
+	cmd = "find %s -fprintf %s '%s'" % (quote(dirname), quote(dirname+"/"+newsnapname), findformat)
 	if oldsnapname!=None:
-		cmd+= " && rm -f "+shlex.quote(dirname+"/"+oldsnapname)
+		cmd+= " && rm -f "+quote(dirname+"/"+oldsnapname)
 	# remove inconsistent newsnap if error in find
-	cmd+= " || ( rm -f "+shlex.quote(dirname+"/"+newsnapname)+" && false )"
+	cmd+= " || ( rm -f "+quote(dirname+"/"+newsnapname)+" && false )"
 
 	if ssh==None:
 		ret = subprocess.call(cmd, shell=True)
@@ -196,14 +209,14 @@ def get_find_proc(ssh, dirname):
 	if ssh==None:
 		return subprocess.Popen([ "find", dirname, "-printf", findformat ], stdout=subprocess.PIPE, universal_newlines=True)
 	else:
-		return subprocess.Popen(ssh.getcmdlist()+["find "+shlex.quote(dirname)+" -printf '"+findformat+"'" ], stdout=subprocess.PIPE, universal_newlines=True)
+		return subprocess.Popen(ssh.getcmdlist()+["find "+quote(dirname)+" -printf '"+findformat+"'" ], stdout=subprocess.PIPE, universal_newlines=True)
 
 # get a file descriptor to read the snapshot file
 def get_snap_fd(ssh, dirname, snapname):
 	if ssh==None:
 		return open(dirname+"/"+snapname, "r")
 	else:
-		return subprocess.Popen(ssh.getcmdlist()+ [ "cat "+shlex.quote(dirname+"/"+snapname) ], stdout=subprocess.PIPE, universal_newlines=True).stdout
+		return subprocess.Popen(ssh.getcmdlist()+ [ "cat "+quote(dirname+"/"+snapname) ], stdout=subprocess.PIPE, universal_newlines=True).stdout
 
 # returns all .bsync-snap-* and .bsync-ignore filenames from dir
 def get_bsync_files(ssh, dirname):
@@ -214,7 +227,7 @@ def get_bsync_files(ssh, dirname):
 				if f.startswith(".bsync-"):
 					files.add(f)
 		else:
-			out = subprocess.check_output(ssh.getcmdlist()+["[ -r "+shlex.quote(dirname)+" ] && cd "+shlex.quote(dirname)+" 2>/dev/null && ( ls -1 .bsync-* 2>/dev/null || true )" ], universal_newlines=True)
+			out = subprocess.check_output(ssh.getcmdlist()+["[ -r "+quote(dirname)+" ] && cd "+quote(dirname)+" 2>/dev/null && ( ls -1 .bsync-* 2>/dev/null || true )" ], universal_newlines=True)
 			files = set( out.split("\n") )
 	except:
 		sys.exit("Error: could not open directory: "+getdirstr(ssh,dirname)+" (is it created?)")
@@ -237,7 +250,7 @@ def get_ignores(ignorefile, ssh,dirname):
 		with open(dirname+"/"+ignorefile) as fd:
 			out = fd.read()
 	else:
-		out = subprocess.check_output(ssh.getcmdlist()+[ "cat "+shlex.quote(dirname+"/"+ignorefile) ], universal_newlines=True)
+		out = subprocess.check_output(ssh.getcmdlist()+[ "cat "+quote(dirname+"/"+ignorefile) ], universal_newlines=True)
 
 	lines = out.split("\n")
 
@@ -445,7 +458,7 @@ def remove(shproc, path):
 	if shproc == None:
 		os.remove(path)
 	else:
-		shproc.stdin.write("rm "+shlex.quote(path)+"\n")
+		shproc.stdin.write("rm "+quote(path)+"\n")
 		shproc.stdin.flush()
 
 def removedir(shproc, path):
@@ -456,7 +469,7 @@ def removedir(shproc, path):
 			#pass
 			print("Warning: "+str(e)) # can happen: dir removed in 1, file dir/f added in 2
 	else:
-		shproc.stdin.write("rmdir "+shlex.quote(path)+" || true\n")
+		shproc.stdin.write("rmdir "+quote(path)+" || true\n")
 		shproc.stdin.flush()
 
 def mkdir(shproc, path, perms):
@@ -467,9 +480,9 @@ def mkdir(shproc, path, perms):
 			os.mkdir(path, int(perms, 8) )
 	else:
 		if perms=="":
-			shproc.stdin.write("mkdir "+shlex.quote(path)+"\n")
+			shproc.stdin.write("mkdir "+quote(path)+"\n")
 		else:
-			shproc.stdin.write("mkdir -m"+perms+" "+shlex.quote(path)+"\n")
+			shproc.stdin.write("mkdir -m"+perms+" "+quote(path)+"\n")
 		shproc.stdin.flush()
 
 def move(shproc, src, dst, perms):
@@ -478,9 +491,9 @@ def move(shproc, src, dst, perms):
 		if perms!="":
 			os.chmod(dst, int(perms, 8) )
 	else:
-		shproc.stdin.write("mv "+shlex.quote(src)+" "+shlex.quote(dst)+"\n")
+		shproc.stdin.write("mv "+quote(src)+" "+quote(dst)+"\n")
 		if perms!="":
-			shproc.stdin.write("chmod "+perms+" "+shlex.quote(dst)+"\n")
+			shproc.stdin.write("chmod "+perms+" "+quote(dst)+"\n")
 		shproc.stdin.flush()
 
 # just write a path in rsync process stdin
