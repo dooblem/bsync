@@ -96,7 +96,8 @@ def ssh_master_init(ssh):
 def ssh_master_clean(tmpdir, ssh):
 	# send exit signal to ssh master, this will remove the socket
 	printv("Cleaning SSH master...")
-	ret = subprocess.call(ssh.getcmdlist()+["-Oexit"], stderr=subprocess.DEVNULL)
+	with open(os.devnull, 'w') as devnull:
+		ret = subprocess.call(ssh.getcmdlist()+["-Oexit"], stderr=devnull)
 	if ret != 0:
 	        print("Error in ssh master exit cmd." , file=sys.stderr)
 		
