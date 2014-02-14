@@ -617,7 +617,7 @@ def apply_actions(dirnum, ssh1,dir1name,ssh2,dir2name, mkdirs,moves,rm,rmdirs,co
 
 	# moves
 	for fromfile, targetfile in moves:
-		perms = None if fromfile.perms == targetfile.perms else targetfile.perms
+		perms = "" if fromfile.perms == targetfile.perms else targetfile.perms
 		if dirnum==2:
 			move(shproc, dir2name+"/"+fromfile.path, dir2name+"/"+targetfile.path, perms)
 		else:
