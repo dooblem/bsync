@@ -748,6 +748,10 @@ if ssh != None:
 
 rsync_check_install(ssh)
 
+# add trailing slashes (to avoid problems with symlinked dirs)
+dir1name = os.path.join(dir1name, '')
+dir2name = os.path.join(dir2name, '')
+
 # try to get console width, for displaying actions, if running interactive
 try:
 	with open(os.devnull, 'w') as devnull:
