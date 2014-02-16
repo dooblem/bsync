@@ -34,15 +34,6 @@ def quote(s):
     # the string $'b is then quoted as '$'"'"'b'
     return "'" + s.replace("'", "'\"'\"'") + "'"
 
-def checkgfind():
-	try: 
-		subprocess.check_output('which gfind',shell=True)
-		return True
-	except: 
-		
-		return False
-osxready = checkgfind()
-
 # a file record from snapshots (original file)
 class OrigFile():
 	def __init__(self, inode1,inode2, path,type,date,size,perms):
@@ -154,6 +145,30 @@ def rsync_check_install(ssh):
 	if ret != 0:
 		sys.exit("Error: please check that rsync is installed (both local and remote sides)")
 
+# check if find supports printf option, and also remote find if ssh needed
+def find_check_command(ssh):
+	localfind = remotefind = None
+	findhelp = "(On OSX, you can download it with brew install)"
+	findargs = ["-maxdepth", "0" ,"-printf", "OK"]
+
+	with open(os.devnull, 'w') as devnull:
+		if subprocess.call(["find"]+findargs, stdout=devnull, stderr=devnull) == 0:
+			localfind = "find"
+		elif subprocess.call(["gfind"]+findargs, stdout=devnull, stderr=devnull) == 0:
+			localfind = "gfind"
+		else:
+			sys.exit("Error: local GNU find not found. "+findhelp)
+		
+		if ssh != None:
+			if subprocess.call(ssh.getcmdlist()+["find"]+findargs, stdout=devnull, stderr=devnull) == 0:
+				remotefind = "find"
+			elif subprocess.call(ssh.getcmdlist()+["gfind"]+findargs, stdout=devnull, stderr=devnull) == 0:
+				remotefind = "gfind"
+			else:
+				sys.exit("Error: remote GNU find not found. "+findhelp)
+		
+	return localfind, remotefind
+
 # check if the filesystem supports permissions
 def fs_check_perms(ssh, dirname):
 	testtmpfile = quote( dirname+"/.bsync-permtest-"+datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f") )
@@ -193,23 +208,18 @@ def rsync_check(sshSrc,dirnameSrc, sshDst,dirnameDst):
 # take a snapshot of files states from dir, using find. store it in .bsync-snap-XXXX
 # snap format: inode, path, type, date...
 def make_snapshot(ssh,dirname, oldsnapname, newsnapname):
-	global findformat
+	global findformat, findcmdlocal, findcmdremote
 
-	if osxready:
-		cmd = "gfind %s -fprintf %s '%s'" % (quote(dirname), quote(dirname+"/"+newsnapname), findformat)
-
-		
-	else:		
-		cmd = "find %s -fprintf %s '%s'" % (quote(dirname), quote(dirname+"/"+newsnapname), findformat)
-		if oldsnapname!=None:
-			cmd+= " && rm -f "+quote(dirname+"/"+oldsnapname)
-		# remove inconsistent newsnap if error in find
-		cmd+= " || ( rm -f "+quote(dirname+"/"+newsnapname)+" && false )"
+	cmd = " %s -fprintf %s '%s'" % (quote(dirname), quote(dirname+"/"+newsnapname), findformat)
+	if oldsnapname!=None:
+		cmd+= " && rm -f "+quote(dirname+"/"+oldsnapname)
+	# remove inconsistent newsnap if error in find
+	cmd+= " || ( rm -f "+quote(dirname+"/"+newsnapname)+" && false )"
 
 	if ssh==None:
-		ret = subprocess.call(cmd, shell=True)
+		ret = subprocess.call(findcmdlocal+cmd, shell=True)
 	else:
-		ret = subprocess.call(ssh.getcmdlist()+[cmd])
+		ret = subprocess.call(ssh.getcmdlist()+[findcmdremote+cmd])
 
 	if ret != 0: sys.exit("Error making a snapshot.")
 
@@ -222,13 +232,11 @@ def make_snapshots(ssh1,dir1name, ssh2,dir2name, oldsnapname):
 
 # run find in a directory to dump its content
 def get_find_proc(ssh, dirname):
-	global findformat
+	global findformat, findcmdlocal, findcmdremote
 	if ssh==None:
-		if osxready:
-			return subprocess.Popen([ "gfind", dirname, "-printf", findformat ], stdout=subprocess.PIPE, universal_newlines=True)
-		return subprocess.Popen([ "find", dirname, "-printf", findformat ], stdout=subprocess.PIPE, universal_newlines=True)
+		return subprocess.Popen([ findcmdlocal, dirname, "-printf", findformat ], stdout=subprocess.PIPE, universal_newlines=True)
 	else:
-		return subprocess.Popen(ssh.getcmdlist()+["find "+quote(dirname)+" -printf '"+findformat+"'" ], stdout=subprocess.PIPE, universal_newlines=True)
+		return subprocess.Popen(ssh.getcmdlist()+[findcmdremote+" "+quote(dirname)+" -printf '"+findformat+"'" ], stdout=subprocess.PIPE, universal_newlines=True)
 
 # get a file descriptor to read the snapshot file
 def get_snap_fd(ssh, dirname, snapname):
@@ -749,8 +757,6 @@ if len(args) != 2:
 dir1name = args[0]
 dir2name = args[1]
 
-if platform.system() == "Darwin" and not osxready:
-	sys.exit("gfind not found. You can download with brew install ")
 # get ssh connection
 ssh = ssh1 = ssh2 = None
 if ':' in dir1name:
@@ -766,7 +772,9 @@ if ssh != None:
 	ssh.port = sshport
 	ssh = ssh_master_init(ssh)
 
+# check rsync and find installs
 rsync_check_install(ssh)
+findcmdlocal, findcmdremote = find_check_command(ssh)
 
 # add trailing slashes (to avoid problems with symlinked dirs)
 dir1name = os.path.join(dir1name, '')
