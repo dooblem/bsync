@@ -46,13 +46,14 @@ Features
 * Exclude some subdirectories from sync (just create a `.bsync-ignore` file)
 * Move your sync dirs without loosing sync memory (filelists stored inside directories in `.bsync-snap-*` files)
 * Auto disable permissions on fat filesystems
+* MacOSX support (requirement: GNU find installed)
 
 Limitations:
 * files ownership ignored (would matter if syncing from root user, but sufficient for regular users)
 * no subdir conflict detection (a bit like in git where only files matter, no conflict is detected if dir1/dir/
   removed and dir2/dir/file created the other side)
 * No Windows support
-* Not tested under MacOSX, OpenBSD, FreeBSD.
+* Not tested under: OpenBSD, FreeBSD (any feedback appreciated)
 
 Example
 -------
