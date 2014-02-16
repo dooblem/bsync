@@ -80,6 +80,11 @@ ssh $sshargs $SSHLOGIN mkdir $SSHDIR
 yes | $BSYNC -p22 $SSHLOGIN:$SSHDIR $DIR1
 ssh $sshargs $SSHLOGIN "[ -h $SSHDIR/bigdir/thelink -a -f $SSHDIR/bigdir/sub/dir/bu/deepfile ]"
 
+# -o option test
+touch $DIR1/mydir/otheremptyfile
+yes | $BSYNC -p22 -o "-v -p22" $SSHLOGIN:$SSHDIR $DIR1
+
+
 ########
 
 rm -rf "$DIR1" 
