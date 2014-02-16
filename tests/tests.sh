@@ -4,7 +4,7 @@ BSYNC="../bsync"
 
 DIR1=/tmp/bsyncdir1
 DIR2=/tmp/bsyncdir2
-SSHLOGIN=$(whoami)@positon.org
+SSHLOGIN=$(whoami)@localhost
 SSHDIR=/tmp/bsyncremotetestdir
 
 rm -rf "$DIR1" 
