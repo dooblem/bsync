@@ -150,13 +150,16 @@ def find_check_command(ssh):
 	findargs = ["-maxdepth", "0" ,"-printf", "OK"]
 
 	with open(os.devnull, 'w') as devnull:
-		if subprocess.call(["find"]+findargs, stdout=devnull, stderr=devnull) == 0:
+		try:
+			subprocess.check_call(["find"]+findargs, stdout=devnull, stderr=devnull)
 			localfind = "find"
-		elif subprocess.call(["gfind"]+findargs, stdout=devnull, stderr=devnull) == 0:
-			localfind = "gfind"
-		else:
-			sys.exit("Error: local GNU find not found. "+findhelp)
-		
+		except:
+			try:
+				subprocess.check_call(["gfind"]+findargs, stdout=devnull, stderr=devnull)
+				localfind = "gfind"
+			except:
+				sys.exit("Error: local GNU find not found. "+findhelp)
+	
 		if ssh != None:
 			if subprocess.call(ssh.getcmdlist()+["find"]+findargs, stdout=devnull, stderr=devnull) == 0:
 				remotefind = "find"
