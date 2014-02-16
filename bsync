@@ -17,7 +17,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import os, sys, shutil, subprocess, collections, time, datetime, shlex, getopt, stat
+import os, sys, shutil, subprocess, collections, time, datetime, shlex, getopt, stat, platform
 
 # from python3.3 tree: Lib/shlex.py (shlex.quote not in python3.2)
 import re
@@ -749,7 +749,7 @@ if len(args) != 2:
 dir1name = args[0]
 dir2name = args[1]
 
-if not osxready:
+if platform.system() == "Darwin" and not osxready:
 	sys.exit("gfind not found. You can download with brew install ")
 # get ssh connection
 ssh = ssh1 = ssh2 = None
