@@ -3,7 +3,7 @@ bsync
 
 Bsync is a bidirectional file synchronization tool, using rsync for transfers. __Moved files__ are also synchronized in a smart way.
 
-It uses [rsync](http://rsync.samba.org) for file transfers, [find](http://www.gnu.org/software/findutils/) to generate filelist snapshots, and [ssh](http://www.openssh.com/) for remote transfers.
+It uses [rsync](http://rsync.samba.org) for file transfers, [GNU find](http://www.gnu.org/software/findutils/) to generate filelist snapshots, and [ssh](http://www.openssh.com/) for remote transfers.
 
 bsync is an alternative to Unison, written in [Python 3](http://www.python.org/). A big strength of bsync: it can detect and apply moved files from one side to the other (Unison uses some copy calls to handle moved files).
 
