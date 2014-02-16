@@ -17,13 +17,11 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import os, sys, shutil, subprocess, collections, time, datetime, shlex, getopt, stat, platform
+import os, sys, shutil, subprocess, collections, time, datetime, shlex, getopt, stat
 
 # from python3.3 tree: Lib/shlex.py (shlex.quote not in python3.2)
 import re
 _find_unsafe = re.compile(r'[^\w@%+=:,./-]', re.ASCII).search
-
-
 def quote(s):
     """Return a shell-escaped version of the string *s*."""
     if not s:
