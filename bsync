@@ -54,14 +54,15 @@ class DirFile():
 		self.perms = perms
 
 class SshCon():
-	def __init__(self, userhost):
+	def __init__(self, userhost, port, customargs):
 		self.userhost = userhost
 		self.sock = None
-		self.port = None
+		self.port = port
+		self.customargs = shlex.split(customargs)
 
 	def getcmdlist(self):
 		port = ["-p"+self.port] if self.port!=None else []
-		return ["ssh", "-S"+self.sock]+port+[self.userhost]
+		return ["ssh"] + ["-S"+self.sock] + port + self.customargs + [self.userhost]
 
 	def getcmdstr(self):
 		return joinargs(self.getcmdlist())
@@ -91,7 +92,6 @@ def ssh_master_init(ssh):
 		sys.exit("Error: ssh is not installed.")
 
 	atexit.register(ssh_master_clean, tmpdir, ssh)
-	return ssh
 
 def ssh_master_clean(tmpdir, ssh):
 	# send exit signal to ssh master, this will remove the socket
@@ -720,18 +720,19 @@ def myinput(prompt):
 		sys.exit(" ")
 
 def usage():
-	usage = "Usage: bsync [-vi] DIR1 DIR2\n\n"
+	usage = "Usage: bsync [options] DIR1 DIR2\n\n"
 	usage+= "	DIR can be user@sshserver:DIR\n"
-	usage+= "	-v	Verbose\n"
-	usage+= "	-i	Ignore permissions\n"
-	usage+= "	-p PORT	Port for SSH\n"
+	usage+= "	-v		Verbose\n"
+	usage+= "	-i		Ignore permissions\n"
+	usage+= "	-p PORT		Port for SSH\n"
+	usage+= "	-o SSHARGS	Custom options for SSH\n"
 	print(usage , file=sys.stderr)
 
 #####################################################
 
 #### process commandline args
 try:
-	opts, args = getopt.gnu_getopt(sys.argv[1:], "vcip:")
+	opts, args = getopt.gnu_getopt(sys.argv[1:], "vcip:o:")
 except getopt.GetoptError as err:
 	print(err, file=sys.stderr)
 	usage()
@@ -739,6 +740,7 @@ except getopt.GetoptError as err:
 
 verbose = check = ignoreperms = False
 sshport = None
+sshargs = ""
 for o, a in opts:
 	if o == "-v":
 		verbose = True
@@ -748,6 +750,8 @@ for o, a in opts:
 		check = True
 	elif o == "-p":
 		sshport = a
+	elif o == "-o":
+		sshargs = a
 	else:
 		assert False, "unhandled option"
 
@@ -762,16 +766,15 @@ dir2name = args[1]
 ssh = ssh1 = ssh2 = None
 if ':' in dir1name:
 	sshuserhost, dir1name = dir1name.split(':', 1)
-	ssh = ssh1 = SshCon(sshuserhost)
+	ssh = ssh1 = SshCon(sshuserhost, sshport, sshargs)
 if ':' in dir2name:
 	sshuserhost, dir2name = dir2name.split(':', 1)
-	ssh = ssh2 = SshCon(sshuserhost)
+	ssh = ssh2 = SshCon(sshuserhost, sshport, sshargs)
 if ssh1!=None and ssh2!=None:
 	sys.exit("Error: only one remote directory supported.")
 
 if ssh != None:
-	ssh.port = sshport
-	ssh = ssh_master_init(ssh)
+	ssh_master_init(ssh)
 
 # check rsync and find installs
 rsync_check_install(ssh)
