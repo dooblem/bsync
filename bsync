@@ -572,10 +572,6 @@ def print_files12(path, f1, f2):
 
 # print actions before asking user validation
 def print_actions(dirnum, mkdirs,moves,rm,rmdirs, copy,sync):
-	##### actions involving one side
-	arrow = "-->"
-	if dirnum==1:
-		arrow = "<--"
 
 	# mkdirss must be done before
 	for f in mkdirs:
@@ -619,50 +615,34 @@ def print_actions(dirnum, mkdirs,moves,rm,rmdirs, copy,sync):
 			print_action("sync", path, "<--", path)
 # end print_actions
 
-def apply_actions(dirnum, ssh1,dir1name,ssh2,dir2name, mkdirs,moves,rm,rmdirs,copy,sync):
-
-	##### actions involving one side
-	ssh = ssh2
-	arrow = "-->"
-	if dirnum==1:
-		ssh = ssh1
-		arrow = "<--"
+# apply small actions: mkdirs, moves, rm, rmdirs
+# quick actions, via local python or remote ssh shell
+def apply_small_actions(ssh,dirname, mkdirs,moves,rm,rmdirs):
+	if mkdirs==[] and moves==[] and len(rm)==0 and rmdirs==[]:
+		return
 
 	shproc = None
 	# if we need a ssh shell
-	if ( (dirnum==2 and ssh2!=None) or (dirnum==1 and ssh1!=None) ) \
-	   and ( mkdirs!=[] or copy!=[] or rmdirs!=[] or len(rm)!=0 ):
+	if ssh != None:
 		shproc = ssh_shell_init(ssh)
 
 	# mkdirss must be done before
 	os.umask(0000) #disable umask to allow for any mkdirs
 	for f in mkdirs:
-		if dirnum==2:
-			mkdir(shproc, dir2name+"/"+f.path, f.perms)
-		else:
-			mkdir(shproc, dir1name+"/"+f.path, f.perms)
+		mkdir(shproc, dirname+"/"+f.path, f.perms)
 
 	# moves
 	for fromfile, targetfile in moves:
 		perms = "" if fromfile.perms == targetfile.perms else targetfile.perms
-		if dirnum==2:
-			move(shproc, dir2name+"/"+fromfile.path, dir2name+"/"+targetfile.path, perms)
-		else:
-			move(shproc, dir1name+"/"+fromfile.path, dir1name+"/"+targetfile.path, perms)
+		move(shproc, dirname+"/"+fromfile.path, dirname+"/"+targetfile.path, perms)
 
 	# removes, after the check moves step
 	for f in rm.values():
-		if dirnum==2:
-			remove(shproc, dir2name+"/"+f.path)
-		else:
-			remove(shproc, dir1name+"/"+f.path)
+		remove(shproc, dirname+"/"+f.path)
 
 	# rmdirs must be done after
 	for path in rmdirs:
-		if dirnum==2:
-			removedir(shproc, dir2name+"/"+path)
-		else:
-			removedir(shproc, dir1name+"/"+path)
+		removedir(shproc, dirname+"/"+path)
 
 	if shproc != None:
 		shproc.stdin.close()
@@ -670,27 +650,22 @@ def apply_actions(dirnum, ssh1,dir1name,ssh2,dir2name, mkdirs,moves,rm,rmdirs,co
 		if shproc.returncode != 0:
 			sys.exit("Error in shell process.")
 
-	##### actions involving a transfer
-	rsyncproc = None
-	# if we need rsync (at least one remote dir, and some copies/sync to do)
-	if copy!=[] or sync!=[]:
-		if dirnum==2:
-			rsyncproc = rsync_init(ssh1,dir1name, ssh2,dir2name)
-		else:
-			rsyncproc = rsync_init(ssh2,dir2name, ssh1,dir1name)
+##### actions involving an rsync transfer
+def apply_rsync_actions(sshSrc,dirnameSrc, sshDst,dirnameDst, pathlist):
+	if len(pathlist) == 0:
+		return
 
-	# finish with copy and sync
-	for path in copy:
-		rsync(rsyncproc, path)
-	for path in sync:
+	rsyncproc = rsync_init(sshSrc,dirnameSrc, sshDst,dirnameDst)
+
+	# finish with copies and sync
+	for path in pathlist:
 		rsync(rsyncproc, path)
 
-	if rsyncproc != None:
-		rsyncproc.stdin.close()
-		rsyncproc.wait()
-		if rsyncproc.returncode != 0:
-			sys.exit("Error in rsync process.")
-# end do_actions
+	# clean rsyncproc
+	rsyncproc.stdin.close()
+	rsyncproc.wait()
+	if rsyncproc.returncode != 0:
+		sys.exit("Error in rsync process.")
 
 def check_moves(copy, rm):
 	# check if we can move instead of rm+copy
@@ -981,10 +956,12 @@ if resp == "n":
 print("Applying actions...")
 
 printv("Applying actions in dir2...")
-apply_actions(2, ssh1,dir1name,ssh2,dir2name, mkdir2,moves2,rm2,rmdirs2,copy12,sync12)
+apply_small_actions(ssh2,dir2name, mkdir2,moves2,rm2,rmdirs2)
+apply_rsync_actions(ssh1,dir1name,ssh2,dir2name, copy12 + sync12)
 
 printv("Applying actions in dir1...")
-apply_actions(1, ssh1,dir1name,ssh2,dir2name, mkdir1,moves1,rm1,rmdirs1,copy21,sync21)
+apply_small_actions(ssh1,dir1name, mkdir1,moves1,rm1,rmdirs1)
+apply_rsync_actions(ssh2,dir2name,ssh1,dir1name, copy21 + sync21)
 
 if check: rsync_check(ssh1,dir1name, ssh2,dir2name)
 

@@ -84,6 +84,16 @@ ssh $sshargs $SSHLOGIN "[ -h $SSHDIR/bigdir/thelink -a -f $SSHDIR/bigdir/sub/dir
 touch $DIR1/mydir/otheremptyfile
 yes | $BSYNC -p22 -o "-v -p22" $SSHLOGIN:$SSHDIR $DIR1
 
+# move test
+# a move in local dir: a2
+mv $DIR1/mydir/a $DIR1/a2
+# another move in remote dir: b3
+ssh $sshargs $SSHLOGIN mv $SSHDIR/mydir/b $SSHDIR/b3
+yes | $BSYNC $SSHLOGIN:$SSHDIR $DIR1
+# check that a2 and b3 are here
+[ -f $DIR1/a2 -a -f $DIR1/b3 ]
+ssh $sshargs $SSHLOGIN "[ -f $DIR1/a2 -a -f $DIR1/b3 ]"
+
 
 ########
 
@@ -93,5 +103,9 @@ ssh $sshargs $SSHLOGIN "rm -rf $SSHDIR"
 ssh $sshargs $SSHLOGIN -Oexit
 
 echo
+echo "All tests are OK !!!!"
+echo "All tests are OK !!!!"
+echo "All tests are OK !!!!"
+echo "All tests are OK !!!!"
 echo "All tests are OK !!!!"
 exit 0
