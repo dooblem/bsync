@@ -446,47 +446,63 @@ def getfilemode(type, perms):
 		o2str = { '7':'rwx', '6':'rw-', '5':'r-x', '4':'r--', '0':'---' }
 		return type + o2str[perms[-3]] + o2str[perms[-2]] + o2str[perms[-1]]
 
+def show_conflict(f1, f2, path):
+	if f1 == None:
+		p1 = "*deleted*"
+		p2 = getfilemode(f2.type, f2.perms)+" "+f2.size+"B ("+getdatestr(f2)+")"
+	elif f2 == None:
+		p1 = getfilemode(f1.type, f1.perms)+" "+f1.size+"B ("+getdatestr(f1)+")"
+		p2 = "*deleted*"
+	else:
+		p1=p2=""
+		if f1.type != f2.type or f1.perms != f2.perms:
+			p1+= getfilemode(f1.type, f1.perms)+" "
+			p2+= getfilemode(f2.type, f2.perms)+" "
+		
+		# size and date are meaningless for dirs. conflicts will not be on them
+		# don't display them if one side is a directory
+		if f1.size != f2.size and f1.type!="d" and f2.type!="d":
+			p1+= f1.size+"B "
+			p2+= f2.size+"B "
+
+		if f1.date != f2.date and f1.type!="d" and f2.type!="d":
+			p1+= "("+getdatestr(f1)+")"
+			p2+= "("+getdatestr(f2)+")"
+
+	print_action("", path, "   ", path)
+	print_action("", p1, "<?>", p2)
+	print()
+
+def print_line():
+	global console_width
+	if console_width == 0: console_width = 80
+	print("~" * console_width)
+
 # ask the user about conflicting changes
 # conflict can be on type, date, size, perms
 def ask_conflict(f1, f2, path, tokeep):
 	if tokeep=="1a" or tokeep=="2a":
 		return tokeep
 
-	if f1 == None:
-		p1 = "*deleted*"
-		p2 = " "+getfilemode(f2.type, f2.perms)+" "+f2.size+"B ("+getdatestr(f2)+")"
-	elif f2 == None:
-		p1 = " "+getfilemode(f1.type, f1.perms)+" "+f1.size+"B ("+getdatestr(f1)+")"
-		p2 = "*deleted*"
-	else:
-		p1=p2=""
-		if f1.type != f2.type or f1.perms != f2.perms:
-			p1+= " "+getfilemode(f1.type, f1.perms)
-			p2+= " "+getfilemode(f2.type, f2.perms)
-		
-		# size and date are meaningless for dirs. conflicts will not be on them
-		# don't display them if one side is a directory
-		if f1.size != f2.size and f1.type!="d" and f2.type!="d":
-			p1+= " "+f1.size+"B"
-			p2+= " "+f2.size+"B"
-
-		if f1.date != f2.date and f1.type!="d" and f2.type!="d":
-			p1+= " ("+getdatestr(f1)+")"
-			p2+= " ("+getdatestr(f2)+")"
-
-	print("\nConflicting changes on: "+path)
-	print_action("conflict", p1, "<?>", p2)
-
 	resp = None
-	while resp!="1" and resp!="2" and resp!="1a" and resp!="2a":
+	while True:
+		print_line()
+		show_conflict(f1, f2, path)
+		print()
+
 		if resp!=None:
 			print("	1	Keep left version")
 			print("	2	Keep right version")
 			print("	1a	Keep left version for all")
 			print("	2a	Keep right version for all")
-		resp = myinput("Which one do I keep [1/2/?] ")
-			
-	return resp
+			print("  Please note: you will be able to confirm the actions later.\n")
+
+		resp = myinput("Which one do I keep? [1/2/1a/2a/Quit/Help] ")
+
+		if resp == "1" or resp == "2" or resp == "1a" or resp == "2a":
+			return resp
+		elif resp == "q" or resp == "Q" or resp == "Quit":
+			sys.exit(0)
 
 #### file actions
 def remove(shproc, path):
@@ -801,6 +817,54 @@ printv("Loading dir1 filelist...")
 dir1 = load_dir(ssh1, dir1name, ignores)
 printv("Loading dir2 filelist...")
 dir2 = load_dir(ssh2, dir2name, ignores)
+
+dir1tmp = dir1.copy()
+dir2tmp = dir2.copy()
+# just show conflicts
+conflicts = []
+for path, fo in origlist.items():
+	f1 = dir1tmp[path] if path in dir1tmp else None
+	f2 = dir2tmp[path] if path in dir2tmp else None
+
+	if f1 == None and f2 == None:
+		pass
+	elif f1 != None and f2 != None and samefiles(f1,f2):
+		pass
+	elif f2 != None and samefiles(f2,fo):
+		# no f2 change --> f1 change only
+		pass
+	elif f1 != None and samefiles(f1,fo):
+		# no f1 change --> f2 change only
+		pass
+	else:
+		# f1 change and f2 change --> confict
+		conflicts.append( (f1, f2, path) )
+
+	dir1tmp.pop(path, None)
+	dir2tmp.pop(path, None)
+
+for path, f1 in dir1tmp.items():
+	f2 = dir2tmp[path] if path in dir2tmp else None
+
+	if f2 != None and samefiles(f2,f1):
+		# f1 and f2 added but same files --> nothing to do
+		pass
+	elif f2 == None:
+		# adding in d2
+		pass
+	else:
+		# f2!=None and f2.date != f1.date --> conflict
+		conflicts.append( (f1, f2, path) )
+
+	dir2tmp.pop(path, None)
+
+if len(conflicts) > 0:
+	print("\nCONFLICTS detected:")
+	print_action("", "[ LEFT DIR CHANGE ]", "   ", "[ RIGHT DIR CHANGE ]")
+	print_action("", args[0], "   ", args[1])
+	print()
+	for f1, f2, path in conflicts:
+		show_conflict(f1, f2, path)
 
 printv("Analysing original paths...")
 mkdir1 = []
