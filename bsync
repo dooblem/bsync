@@ -920,24 +920,14 @@ for path, f1 in dir1.items():
 
 	dir2.pop(path, None)
 
+# remaining in dir2: new paths not in orig nor in dir1 --> no conflict
 printv("Analysing remaining new paths in dir2...")
 # process remaining new paths in dir2
 for path, f2 in dir2.items():
-	f1 = dir1[path] if path in dir1 else None
-
-	if f1 != None and samefiles(f1,f2):
-		pass
-	elif f1 == None:
-		if f2.type == "d":
-			mkdir1.append(f2)
-		else:
-			copy21.append(f2)
+	if f2.type == "d":
+		mkdir1.append(f2)
 	else:
-		tokeep = ask_conflict(f1, f2, path, tokeep);
-		if tokeep[0]== "1":
-			sync12.append(path)
-		else: # tokeep == 2
-			sync21.append(path)
+		copy21.append(f2)
 
 # moves detection
 copy12, rm2, moves2 = check_moves(copy12, rm2)
