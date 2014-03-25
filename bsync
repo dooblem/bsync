@@ -469,7 +469,8 @@ def show_conflict(f1, f2, path):
 			p1+= "("+getdatestr(f1)+")"
 			p2+= "("+getdatestr(f2)+")"
 
-	print_action("", path, "   ", path)
+	print("CONFLICT detected on: "+path)
+	print_action("", "LEFT DIR CHANGE", "   ", "RIGHT DIR CHANGE")
 	print_action("", p1, "<?>", p2)
 	print()
 
@@ -486,9 +487,7 @@ def ask_conflict(f1, f2, path, tokeep):
 
 	resp = None
 	while True:
-		print_line()
 		show_conflict(f1, f2, path)
-		print()
 
 		if resp!=None:
 			print("	1	Keep left version")
@@ -498,6 +497,7 @@ def ask_conflict(f1, f2, path, tokeep):
 			print("  Please note: you will be able to confirm the actions later.\n")
 
 		resp = myinput("Which one do I keep? [1/2/1a/2a/Quit/Help] ")
+		print_line()
 
 		if resp == "1" or resp == "2" or resp == "1a" or resp == "2a":
 			return resp
@@ -567,14 +567,14 @@ def print_action(action, path1, arrow, path2):
 	print( path1.ljust(w) +" "+arrow+"  "+ path2.ljust(w) +" "+action )
 
 def get_dir_summary(mkdir,moves,rm,rmdirs,copy,sync):
-	s = ""
-	if len(mkdir)>0: s+= "mkdir:"+str(len(mkdir))+" "
-	if len(moves)>0: s+= "mv:"+str(len(moves))+" "
-	if len(rm)>0: s+= "rm:"+str(len(rm))+" "
-	if len(rmdirs)>0: s+= "rmdir:"+str(len(rmdirs))+" "
-	if len(copy)>0: s+= "cp:"+str(len(copy))+" "
-	if len(sync)>0: s+= "sync:"+str(len(sync))
-	return s
+	actions = []
+	if len(mkdir)>0:  actions.append("mkdir:"+str(len(mkdir)))
+	if len(moves)>0:  actions.append("mv:"+str(len(moves)))
+	if len(rm)>0:     actions.append("rm:"+str(len(rm)))
+	if len(rmdirs)>0: actions.append("rmdir"+str(len(rmdirs)))
+	if len(copy)>0:   actions.append("cp:"+str(len(copy)))
+	if len(sync)>0:   actions.append("sync:"+str(len(sync)))
+	return " ".join(actions)
 
 def print_files(fo, f1, f2):
 	print("%s: i:%s d:%s | i:%s d:%s (orig)" % (fo.path, fo.i1, fo.date, fo.i2, fo.date))
@@ -859,12 +859,10 @@ for path, f1 in dir1tmp.items():
 	dir2tmp.pop(path, None)
 
 if len(conflicts) > 0:
-	print("\nCONFLICTS detected:")
-	print_action("", "[ LEFT DIR CHANGE ]", "   ", "[ RIGHT DIR CHANGE ]")
-	print_action("", args[0], "   ", args[1])
 	print()
 	for f1, f2, path in conflicts:
 		show_conflict(f1, f2, path)
+	print_line()
 
 printv("Analysing original paths...")
 mkdir1 = []
@@ -1013,8 +1011,7 @@ if len(mkdir1)==0 and len(moves1)==0 and len(rm1)==0 and len(rmdirs1)==0 and len
 	sys.exit()
 
 print()
-print_action("ACTION", "[ LEFT DIR CONTENT ]", "   ", "[ RIGHT DIR CONTENT ]")
-print_action("", args[0], "   ", args[1])
+print_action("ACTION", "(LEFT DIR CONTENT)", "   ", "(RIGHT DIR CONTENT)")
 print()
 print_actions(2, mkdir2,moves2,rm2,rmdirs2, copy12,sync12)
 print_actions(1, mkdir1,moves1,rm1,rmdirs1, copy21,sync21)
