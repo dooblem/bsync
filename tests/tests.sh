@@ -15,6 +15,95 @@ ssh $sshargs $SSHLOGIN "rm -rf $SSHDIR"
 
 ########
 
+test_no_args() {
+	# bsync with no args should fail
+	if $BSYNC; then
+		return 1
+	fi
+}
+
+test_dir_not_here() {
+	# bsync with no dir should fail
+	if $BSYNC $DIR1 $DIR2; then
+		return 1
+	fi
+}
+
+test_empty_dirs() {
+	# bsync with empty dirs
+	$BSYNC $DIR1 $DIR2
+	[ "$(ls $DIR1)" = "" ]
+	[ "$(ls $DIR2)" = "" ]
+	find $DIR1 | grep bsync-snap
+	find $DIR2 | grep bsync-snap
+}
+
+test_empty_response() {
+	# sync with empty response
+	echo | $BSYNC $DIR1 $DIR2
+	if ls $DIR1/bigdir/sub/dir/bu/deepfile || ls $DIR2/mydir/abc; then
+		return 1
+	fi
+}
+
+test_simple_sync() {
+	# sync with y response
+	yes | $BSYNC $DIR1 $DIR2
+	ls $DIR1/bigdir/sub/dir/bu/deepfile
+	ls $DIR2/mydir/abc
+}
+
+test_simple_conflict() {
+	echo content1 >> $DIR1/mydir/a
+	echo content22 >> $DIR2/mydir/a
+
+	echo "2a
+y" | $BSYNC $DIR1 $DIR2
+	grep content2 $DIR1/mydir/a
+	grep content2 $DIR2/mydir/a
+}
+
+test_symlinks() {
+	# some symlinks
+	ln -s anytarget $DIR1/bigdir/thelink
+	ln -s roiiiuyer $DIR1/otherlink
+	ln -s anytarget $DIR2/bigdir/bond
+	ln -s roiiiuyer $DIR2/otherlink2
+	yes | $BSYNC $DIR1 $DIR2
+	[ -h $DIR2/bigdir/thelink ]
+	[ -h $DIR1/bigdir/bond ]
+}
+
+test_ssh_fail_noremotedir() {
+	# ssh: should fail with no remote dir
+	if $BSYNC $SSHLOGIN:$SSHDIR $DIR1; then
+		return 1
+	fi
+}
+
+test_ssh_sync_portarg() {
+	yes | $BSYNC -p22 $SSHLOGIN:$SSHDIR $DIR1
+	ssh $sshargs $SSHLOGIN "[ -h $SSHDIR/bigdir/thelink -a -f $SSHDIR/bigdir/sub/dir/bu/deepfile ]"
+}
+
+test_ssh_optionarg() {
+	# -o option test
+	touch $DIR1/mydir/otheremptyfile
+	yes | $BSYNC -p22 -o "-v -p22" $SSHLOGIN:$SSHDIR $DIR1
+}
+
+test_ssh_moves() {
+	# move test
+	# a move in local dir: a2
+	mv $DIR1/mydir/a $DIR1/a2
+	# another move in remote dir: b3
+	ssh $sshargs $SSHLOGIN mv $SSHDIR/mydir/b $SSHDIR/b3
+	yes | $BSYNC $SSHLOGIN:$SSHDIR $DIR1
+	# check that a2 and b3 are here
+	[ -f $DIR1/a2 -a -f $DIR1/b3 ]
+	ssh $sshargs $SSHLOGIN "[ -f $DIR1/a2 -a -f $DIR1/b3 ]"
+}
+
 test_exotic_filename_ssh() {
 	touch "$DIR1/exotic:$(head -c30 /dev/urandom | tr -d '\0/')"
 	yes | $BSYNC $SSHLOGIN:$SSHDIR $DIR1
@@ -24,21 +113,13 @@ test_exotic_filename_ssh() {
 
 ########
 
-# bsync with no args should fail
-$BSYNC && false
-
-# bsync with no dir should fail
-$BSYNC $DIR1 $DIR2 && false
+test_no_args
+test_dir_not_here
 
 mkdir $DIR1
 mkdir $DIR2
 
-# bsync with empty dirs
-$BSYNC $DIR1 $DIR2
-[ "$(ls $DIR1)" = "" ]
-[ "$(ls $DIR2)" = "" ]
-find $DIR1 | grep bsync-snap
-find $DIR2 | grep bsync-snap
+test_empty_dirs
 
 touch $DIR1/touchfile
 mkdir $DIR1/mydir
@@ -52,57 +133,20 @@ mkdir $DIR2/bigdir
 mkdir -p $DIR2/bigdir/sub/dir/bu/
 echo cccc > $DIR2/bigdir/sub/dir/bu/deepfile
 
-# sync with empty response
-echo | $BSYNC $DIR1 $DIR2
-ls $DIR1/bigdir/sub/dir/bu/deepfile && false
-ls $DIR2/mydir/abc && false
+test_empty_response
+test_simple_sync
 
-# sync with y response
-yes | $BSYNC $DIR1 $DIR2
-ls $DIR1/bigdir/sub/dir/bu/deepfile
-ls $DIR2/mydir/abc
+test_simple_conflict
+test_symlinks
 
-echo content1 >> $DIR1/mydir/a
-echo content22 >> $DIR2/mydir/a
-
-# a conflict
-echo "2a
-y" | $BSYNC $DIR1 $DIR2
-grep content2 $DIR1/mydir/a
-grep content2 $DIR2/mydir/a
-
-# some symlinks
-ln -s anytarget $DIR1/bigdir/thelink
-ln -s roiiiuyer $DIR1/otherlink
-ln -s anytarget $DIR2/bigdir/bond
-ln -s roiiiuyer $DIR2/otherlink2
-yes | $BSYNC $DIR1 $DIR2
-[ -h $DIR2/bigdir/thelink ]
-[ -h $DIR1/bigdir/bond ]
-
-
-# ssh: should fail with no remote dir
-$BSYNC $SSHLOGIN:$SSHDIR $DIR1 && false
+test_ssh_fail_noremotedir
 
 ## ssh sync with dir1, should also work with port arg
 ssh $sshargs $SSHLOGIN mkdir $SSHDIR
-yes | $BSYNC -p22 $SSHLOGIN:$SSHDIR $DIR1
-ssh $sshargs $SSHLOGIN "[ -h $SSHDIR/bigdir/thelink -a -f $SSHDIR/bigdir/sub/dir/bu/deepfile ]"
 
-# -o option test
-touch $DIR1/mydir/otheremptyfile
-yes | $BSYNC -p22 -o "-v -p22" $SSHLOGIN:$SSHDIR $DIR1
-
-# move test
-# a move in local dir: a2
-mv $DIR1/mydir/a $DIR1/a2
-# another move in remote dir: b3
-ssh $sshargs $SSHLOGIN mv $SSHDIR/mydir/b $SSHDIR/b3
-yes | $BSYNC $SSHLOGIN:$SSHDIR $DIR1
-# check that a2 and b3 are here
-[ -f $DIR1/a2 -a -f $DIR1/b3 ]
-ssh $sshargs $SSHLOGIN "[ -f $DIR1/a2 -a -f $DIR1/b3 ]"
-
+test_ssh_sync_portarg
+test_ssh_optionarg
+test_ssh_moves
 test_exotic_filename_ssh
 
 ########
