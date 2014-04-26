@@ -1,17 +1,26 @@
 #!/bin/sh -ex
 
-BSYNC="../bsync"
+export BSYNC="./bsync"
 
-DIR1=/tmp/bsyncdir1
-DIR2=/tmp/bsyncdir2
-SSHLOGIN=$(whoami)@localhost
-SSHDIR=/tmp/bsyncremotetestdir
+export DIR1=/tmp/bsyncdir1
+export DIR2=/tmp/bsyncdir2
+export SSHLOGIN=$(whoami)@localhost
+export SSHDIR=/tmp/bsyncremotetestdir
 
 rm -rf "$DIR1" 
 rm -rf "$DIR2" 
-sshargs=" -S/tmp/bsynctest_%r@%h:%p "
+export sshargs=" -S/tmp/bsynctest_%r@%h:%p "
 ssh $sshargs -fNM $SSHLOGIN # open master cxion
 ssh $sshargs $SSHLOGIN "rm -rf $SSHDIR"
+
+########
+
+test_exotic_filename_ssh() {
+	touch "$DIR1/exotic:$(head -c30 /dev/urandom | tr -d '\0/')"
+	yes | $BSYNC $SSHLOGIN:$SSHDIR $DIR1
+	find $DIR1 | grep exotic:
+	ssh $sshargs $SSHLOGIN "find $SSHDIR | grep exotic:"
+}
 
 ########
 
@@ -94,6 +103,7 @@ yes | $BSYNC $SSHLOGIN:$SSHDIR $DIR1
 [ -f $DIR1/a2 -a -f $DIR1/b3 ]
 ssh $sshargs $SSHLOGIN "[ -f $DIR1/a2 -a -f $DIR1/b3 ]"
 
+test_exotic_filename_ssh
 
 ########
 
@@ -103,9 +113,12 @@ ssh $sshargs $SSHLOGIN "rm -rf $SSHDIR"
 ssh $sshargs $SSHLOGIN -Oexit
 
 echo
-echo "All tests are OK !!!!"
-echo "All tests are OK !!!!"
-echo "All tests are OK !!!!"
-echo "All tests are OK !!!!"
-echo "All tests are OK !!!!"
+echo "
+All tests are OK !!!!
+All tests are OK !!!!
+All tests are OK !!!!
+All tests are OK !!!!
+All tests are OK !!!!
+"
+
 exit 0
