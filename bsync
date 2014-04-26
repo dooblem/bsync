@@ -32,6 +32,15 @@ def quote(s):
     # the string $'b is then quoted as '$'"'"'b'
     return "'" + s.replace("'", "'\"'\"'") + "'"
 
+def quotepath(path):
+	return b"'" + path.replace(b"'", b"'\"'\"'") + b"'"
+
+def tostr(o):
+	if type(o) is bytes:
+		return o.decode(errors='replace')
+	else:
+		return o
+
 # a file record from snapshots (original file)
 class OrigFile():
 	def __init__(self, inode1,inode2, path,type,date,size,perms):
@@ -114,7 +123,7 @@ findformat = "%i\\0%P\\0%y\\0%T@\\0%s\\0%#m\\0"
 # find test1/ -printf "%i\t%P\t%y\t%T@\t%s\t%#m\n"
 
 def ssh_shell_init(ssh):
-	return subprocess.Popen(ssh.getcmdlist()+["sh -e"], stdin=subprocess.PIPE, universal_newlines=True)
+	return subprocess.Popen(ssh.getcmdlist()+["sh -e"], stdin=subprocess.PIPE)
 
 def rsync_init(sshSrc,dirnameSrc, sshDst,dirnameDst):
 	#rsync ssh/dir1 --> local/dir2
@@ -131,7 +140,7 @@ def rsync_init(sshSrc,dirnameSrc, sshDst,dirnameDst):
 		cmdlist.remove(ssh.userhost)
 		args.append("-e "+joinargs(cmdlist))
 
-	return subprocess.Popen(["rsync"]+args+[rsyncsrc, rsyncdst], stdin=subprocess.PIPE, universal_newlines=True)
+	return subprocess.Popen(["rsync"]+args+[rsyncsrc, rsyncdst], stdin=subprocess.PIPE)
 
 def rsync_check_install(ssh):
 	remote_check = ""
@@ -235,16 +244,16 @@ def make_snapshots(ssh1,dir1name, ssh2,dir2name, oldsnapname):
 def get_find_proc(ssh, dirname):
 	global findformat, findcmdlocal, findcmdremote
 	if ssh==None:
-		return subprocess.Popen([ findcmdlocal, dirname, "-printf", findformat ], stdout=subprocess.PIPE, universal_newlines=True)
+		return subprocess.Popen([ findcmdlocal, dirname, "-printf", findformat ], stdout=subprocess.PIPE)
 	else:
-		return subprocess.Popen(ssh.getcmdlist()+[findcmdremote+" "+quote(dirname)+" -printf '"+findformat+"'" ], stdout=subprocess.PIPE, universal_newlines=True)
+		return subprocess.Popen(ssh.getcmdlist()+[findcmdremote+" "+quote(dirname)+" -printf '"+findformat+"'" ], stdout=subprocess.PIPE)
 
 # get a file descriptor to read the snapshot file
 def get_snap_fd(ssh, dirname, snapname):
 	if ssh==None:
-		return open(dirname+"/"+snapname, "r")
+		return open(dirname+"/"+snapname, "rb")
 	else:
-		return subprocess.Popen(ssh.getcmdlist()+ [ "cat "+quote(dirname+"/"+snapname) ], stdout=subprocess.PIPE, universal_newlines=True).stdout
+		return subprocess.Popen(ssh.getcmdlist()+ [ "cat "+quote(dirname+"/"+snapname) ], stdout=subprocess.PIPE).stdout
 
 # returns all .bsync-snap-* and .bsync-ignore filenames from dir
 def get_bsync_files(ssh, dirname):
@@ -252,12 +261,13 @@ def get_bsync_files(ssh, dirname):
 	try:
 		if ssh==None:
 			for f in os.listdir(dirname):
+				f = tostr(f) #avoid problems with non utf8 chars
 				if f.startswith(".bsync-"):
 					files.add(f)
 		else:
 			out = subprocess.check_output(ssh.getcmdlist()+["[ -r "+quote(dirname)+" ] && cd "+quote(dirname)+" 2>/dev/null && ( ls -1 .bsync-* 2>/dev/null || true )" ], universal_newlines=True)
 			files = set( out.split("\n") )
-	except:
+	except (FileNotFoundError, subprocess.CalledProcessError):
 		sys.exit("Error: could not open directory: "+getdirstr(ssh,dirname)+" (is it created?)")
 
 	snaps = set()
@@ -290,19 +300,21 @@ def get_ignores(ignorefile, ssh,dirname):
 	return ignores
 
 # returns True if the path has to be ignored
+# ignore root path and .bsync files
 def ignorepath(path, ignoreset):
-	if path == "" or path.startswith(".bsync-"):
+	if path == b"" or path.startswith(b".bsync-"):
 		return True
 	else:
 		for ignore in ignoreset:
-			if (path+"/").startswith(ignore):
+			if (path+b"/").startswith(ignore.encode()):
 				return True
 	return False
 
 # http://stackoverflow.com/questions/9237246/python-how-to-read-file-with-nul-delimited-lines
 # http://bugs.python.org/issue1152248
+# modified to work on byte strings
 def fileLineIter(inputFile,
-                 inputNewline="\n",
+                 inputNewline=b"\0",
                  outputNewline=None,
                  readSize=8192):
    """Like the normal file iter but you can set what string indicates newline.
@@ -314,15 +326,15 @@ def fileLineIter(inputFile,
    something like "os.popen('find -print0')".
    """
    if outputNewline is None: outputNewline = inputNewline
-   partialLine = ''
+   partialLine = b''
    while True:
        charsJustRead = inputFile.read(readSize)
        if not charsJustRead: break
        partialLine += charsJustRead
        lines = partialLine.split(inputNewline)
        partialLine = lines.pop()
-       for line in lines: yield line + outputNewline.rstrip('\0') # little mod
-   if partialLine: yield partialLine.rstrip('\0') # little mod
+       for line in lines: yield line + outputNewline.rstrip(b'\0') # little mod
+   if partialLine: yield partialLine.rstrip(b'\0') # little mod
 
 def read_file_record(gen):
 	global ignoreperms
@@ -330,6 +342,12 @@ def read_file_record(gen):
 	i=p=t=d=s=perms=None
 	try:
 		i,p,t,d,s,perms = next(gen),next(gen),next(gen),next(gen),next(gen),next(gen)
+		# convert all to str except path
+		i = i.decode()
+		t = t.decode()
+		d = d.decode()
+		s = s.decode()
+		perms = perms.decode()
 	except StopIteration:
 		if i==None and p==None and t==None and d==None and s==None and perms==None:
 			return None
@@ -370,8 +388,8 @@ def load_orig(ssh1,dir1name, ssh2,dir2name):
 
 	fd1 = get_snap_fd(ssh1, dir1name, snapname)
 	fd2 = get_snap_fd(ssh2, dir2name, snapname)
-	gen1 = fileLineIter(fd1, inputNewline='\0')
-	gen2 = fileLineIter(fd2, inputNewline='\0')
+	gen1 = fileLineIter(fd1)
+	gen2 = fileLineIter(fd2)
 
 	# iterate on gen1 to fill orig
 	# first fill with 1st snap, then with 2nd snap, because the order can be different (in find output)
@@ -396,7 +414,7 @@ def load_orig(ssh1,dir1name, ssh2,dir2name):
 			if path in orig:
 				origfile = orig[path]
 				if origfile.type != type or origfile.date != date or origfile.size != size or origfile.perms != perms:
-					sys.exit("Error: difference in snaps for path: "+path) 
+					sys.exit("Error: difference in snaps for path: "+tostr(path)) 
 
 				origfile.i2 = inode #set the second inode
 		
@@ -416,7 +434,7 @@ def load_dir(ssh, dirname, ignores):
 
 	proc = get_find_proc(ssh, dirname)
 	fd = proc.stdout
-	gen = fileLineIter(fd, inputNewline='\0')
+	gen = fileLineIter(fd)
 
 	record = read_file_record(gen)
 	while record != None:
@@ -469,7 +487,7 @@ def show_conflict(f1, f2, path):
 			p1+= "("+getdatestr(f1)+")"
 			p2+= "("+getdatestr(f2)+")"
 
-	print("CONFLICT detected on: "+path)
+	print("CONFLICT detected on: "+tostr(path))
 	print_action("", "LEFT DIR CHANGE", "   ", "RIGHT DIR CHANGE")
 	print_action("", p1, "   ", p2)
 	print()
@@ -509,7 +527,7 @@ def remove(shproc, path):
 	if shproc == None:
 		os.remove(path)
 	else:
-		shproc.stdin.write("rm "+quote(path)+"\n")
+		shproc.stdin.write( b"rm " + quotepath(path) + b"\n" )
 		shproc.stdin.flush()
 
 def removedir(shproc, path):
@@ -520,7 +538,7 @@ def removedir(shproc, path):
 			#pass
 			print("Warning: "+str(e)) # can happen: dir removed in 1, file dir/f added in 2
 	else:
-		shproc.stdin.write("rmdir "+quote(path)+" || true\n")
+		shproc.stdin.write( b"rmdir " + quotepath(path) + b" || true\n" )
 		shproc.stdin.flush()
 
 def mkdir(shproc, path, perms):
@@ -531,9 +549,9 @@ def mkdir(shproc, path, perms):
 			os.mkdir(path, int(perms, 8) )
 	else:
 		if perms=="":
-			shproc.stdin.write("mkdir "+quote(path)+"\n")
+			shproc.stdin.write( b"mkdir " + quotepath(path) + b"\n" )
 		else:
-			shproc.stdin.write("mkdir -m"+perms+" "+quote(path)+"\n")
+			shproc.stdin.write( b"mkdir -m" + perms.encode() + b" " + quotepath(path) + b"\n" )
 		shproc.stdin.flush()
 
 def move(shproc, src, dst, perms):
@@ -542,14 +560,14 @@ def move(shproc, src, dst, perms):
 		if perms!="":
 			os.chmod(dst, int(perms, 8) )
 	else:
-		shproc.stdin.write("mv "+quote(src)+" "+quote(dst)+"\n")
+		shproc.stdin.write( b"mv " + quotepath(src) + b" " + quotepath(dst) + b"\n" )
 		if perms!="":
-			shproc.stdin.write("chmod "+perms+" "+quote(dst)+"\n")
+			shproc.stdin.write( b"chmod " + perms.encode() + b" " + quotepath(dst) + b"\n" )
 		shproc.stdin.flush()
 
 # just write a path in rsync process stdin
 def rsync(rsyncproc, path):
-	rsyncproc.stdin.write(path+"\0")
+	rsyncproc.stdin.write(path+b"\0")
 	rsyncproc.stdin.flush()
 
 def printv(s):
@@ -564,7 +582,7 @@ def print_action(action, path1, arrow, path2):
 
 	action = "("+action+")" if action!="" else ""
 
-	print( path1.ljust(w) +" "+arrow+"  "+ path2.ljust(w) +" "+action )
+	print( tostr(path1).ljust(w) +" "+arrow+"  "+ tostr(path2).ljust(w) +" "+action )
 
 def get_dir_summary(mkdir,moves,rm,rmdirs,copy,sync):
 	actions = []
@@ -592,16 +610,16 @@ def print_actions(dirnum, mkdirs,moves,rm,rmdirs, copy,sync):
 	# mkdirss must be done before
 	for f in mkdirs:
 		if dirnum==2:
-			print_action("mkdir", f.path+"/", "-->", "")
+			print_action("mkdir", tostr(f.path)+"/", "-->", "")
 		else:
-			print_action("mkdir", "", "<--", f.path+"/")
+			print_action("mkdir", "", "<--", tostr(f.path)+"/")
 
 	# moves
 	for fromfile, targetfile in moves:
 		if dirnum==2:
-			print_action("move", targetfile.path, "-->", "from:"+fromfile.path)
+			print_action("move", targetfile.path, "-->", "from:"+tostr(fromfile.path))
 		else:
-			print_action("move", "from:"+fromfile.path, "<--", targetfile.path)
+			print_action("move", "from:"+tostr(fromfile.path), "<--", targetfile.path)
 
 	# removes, after the check moves step
 	for f in rm.values():
@@ -645,20 +663,20 @@ def apply_small_actions(ssh,dirname, mkdirs,moves,rm,rmdirs):
 	# mkdirss must be done before
 	os.umask(0000) #disable umask to allow for any mkdirs
 	for f in mkdirs:
-		mkdir(shproc, dirname+"/"+f.path, f.perms)
+		mkdir(shproc, dirname.encode()+b"/"+f.path, f.perms)
 
 	# moves
 	for fromfile, targetfile in moves:
 		perms = "" if fromfile.perms == targetfile.perms else targetfile.perms
-		move(shproc, dirname+"/"+fromfile.path, dirname+"/"+targetfile.path, perms)
+		move(shproc, dirname.encode()+b"/"+fromfile.path, dirname.encode()+b"/"+targetfile.path, perms)
 
 	# removes, after the check moves step
 	for f in rm.values():
-		remove(shproc, dirname+"/"+f.path)
+		remove(shproc, dirname.encode()+b"/"+f.path)
 
 	# rmdirs must be done after
 	for path in rmdirs:
-		removedir(shproc, dirname+"/"+path)
+		removedir(shproc, dirname.encode()+b"/"+path)
 
 	if shproc != None:
 		shproc.stdin.close()
