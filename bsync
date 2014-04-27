@@ -228,6 +228,9 @@ def make_snapshot(ssh,dirname, oldsnapname, newsnapname):
 	global findformat, findcmdlocal, findcmdremote
 
 	cmd = " %s -fprintf %s '%s'" % (quote(dirname), quote(dirname+"/"+newsnapname), findformat)
+	cmd+= "; [ -s "+quote(dirname+"/"+newsnapname)+" ]"
+	# Allow find errors (perms problems...), ok if snap is not empty
+
 	if oldsnapname!=None:
 		cmd+= " && rm -f "+quote(dirname+"/"+oldsnapname)
 	# remove inconsistent newsnap if error in find
@@ -456,7 +459,7 @@ def load_dir(ssh, dirname, ignores):
 	fd.close()
 	proc.wait()
 	if proc.returncode != 0:
-		sys.exit("Find Error in "+getdirstr(ssh,dirname))
+		printerr("Errors in find detected.")
 	
 	return dir
 
@@ -703,7 +706,7 @@ def apply_rsync_actions(sshSrc,dirnameSrc, sshDst,dirnameDst, pathlist):
 	rsyncproc.stdin.close()
 	rsyncproc.wait()
 	if rsyncproc.returncode != 0:
-		sys.exit("Error in rsync process.")
+		printerr("Errors in rsync detected.")
 
 def check_moves(copy, rm):
 	# check if we can move instead of rm+copy
