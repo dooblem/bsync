@@ -421,7 +421,8 @@ def load_orig(ssh1,dir1name, ssh2,dir2name):
 			if path in orig:
 				origfile = orig[path]
 				if origfile.type != type or origfile.date != date or origfile.size != size or origfile.perms != perms:
-					sys.exit("Error: difference in snaps for path: "+tostr(path)) 
+					printerr("Warning: difference in snaps, ignoring history for path: "+tostr(path))
+					del orig[path]
 
 				origfile.i2 = inode #set the second inode
 		
