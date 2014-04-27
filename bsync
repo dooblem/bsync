@@ -89,6 +89,13 @@ def samefiles(f1, f2):
 	else:
 		return f1.type==f2.type and f1.date==f2.date and f1.perms==f2.perms
 
+def printv(s):
+	global verbose
+	if verbose: print(s)
+
+def printerr(s):
+	print(s, file=sys.stderr)
+
 def ssh_master_init(ssh):
 	import tempfile, atexit
 	tmpdir = tempfile.mkdtemp()
@@ -108,7 +115,7 @@ def ssh_master_clean(tmpdir, ssh):
 	with open(os.devnull, 'w') as devnull:
 		ret = subprocess.call(ssh.getcmdlist()+["-Oexit"], stderr=devnull)
 	if ret != 0:
-	        print("Error in ssh master exit cmd." , file=sys.stderr)
+	        printerr("Error in ssh master exit cmd.")
 		
 	try:
 		os.rmdir(tmpdir) # remove tmpdir (should be empty)
@@ -117,7 +124,7 @@ def ssh_master_clean(tmpdir, ssh):
 		try:
 			os.rmdir(tmpdir)
 		except:
-	        	print("Could not remove tmpdir: "+tmpdir, file=sys.stderr)
+			printerr("Could not remove tmpdir: "+tmpdir)
 
 findformat = "%i\\0%P\\0%y\\0%T@\\0%s\\0%#m\\0"
 # find test1/ -printf "%i\t%P\t%y\t%T@\t%s\t%#m\n"
@@ -570,10 +577,6 @@ def rsync(rsyncproc, path):
 	rsyncproc.stdin.write(path+b"\0")
 	rsyncproc.stdin.flush()
 
-def printv(s):
-	global verbose
-	if verbose: print(s)
-
 def print_action(action, path1, arrow, path2):
 	global console_width
 	w = 0
@@ -735,7 +738,7 @@ def usage():
 	usage+= "	-i		Ignore permissions\n"
 	usage+= "	-p PORT		Port for SSH\n"
 	usage+= "	-o SSHARGS	Custom options for SSH\n"
-	print(usage , file=sys.stderr)
+	printerr(usage)
 
 #####################################################
 
@@ -743,7 +746,7 @@ def usage():
 try:
 	opts, args = getopt.gnu_getopt(sys.argv[1:], "vcip:o:")
 except getopt.GetoptError as err:
-	print(err, file=sys.stderr)
+	printerr(err)
 	usage()
 	sys.exit(2)
 
