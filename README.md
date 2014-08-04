@@ -35,6 +35,18 @@ bsync can also be used to sync with a master directory:
     ./bsync BOB_DIR   MASTER_DIR
     # Bob gets Alice changes, sending his changes to master in the same time
     
+bsync help and options:
+
+```
+Usage: bsync [options] DIR1 DIR2
+
+	DIR can be user@sshserver:DIR
+	-v		Verbose
+	-i		Ignore permissions
+	-p PORT		Port for SSH
+	-o SSHARGS	Custom options for SSH
+```
+    
 Features
 --------
 
