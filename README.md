@@ -41,10 +41,10 @@ bsync help and options:
 Usage: bsync [options] DIR1 DIR2
 
 	DIR can be user@sshserver:DIR
-	-v		Verbose
-	-i		Ignore permissions
-	-p PORT		Port for SSH
-	-o SSHARGS	Custom options for SSH
+	-v              Verbose
+	-i              Ignore permissions
+	-p PORT         Port for SSH
+	-o SSHARGS      Custom options for SSH
 ```
     
 Features
