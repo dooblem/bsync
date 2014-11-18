@@ -16,6 +16,7 @@ ssh $sshargs $SSHLOGIN "rm -rf $SSHDIR"
 ########
 
 test_no_args() {
+	echo "**test_no_args**"
 	# bsync with no args should fail
 	if $BSYNC; then
 		return 1
@@ -23,6 +24,7 @@ test_no_args() {
 }
 
 test_dir_not_here() {
+	echo "**test_dir_not_here**"
 	# bsync with no dir should fail
 	if $BSYNC $DIR1 $DIR2; then
 		return 1
@@ -30,6 +32,7 @@ test_dir_not_here() {
 }
 
 test_empty_dirs() {
+	echo "**test_empty_dirs**"
 	# bsync with empty dirs
 	$BSYNC $DIR1 $DIR2
 	[ "$(ls $DIR1)" = "" ]
@@ -39,6 +42,7 @@ test_empty_dirs() {
 }
 
 test_empty_response() {
+	echo "**test_empty_response**"
 	# sync with empty response
 	echo | $BSYNC $DIR1 $DIR2
 	if ls $DIR1/bigdir/sub/dir/bu/deepfile || ls $DIR2/mydir/abc; then
@@ -47,6 +51,7 @@ test_empty_response() {
 }
 
 test_simple_sync() {
+	echo "**test_simple_sync**"
 	# sync with y response
 	yes | $BSYNC $DIR1 $DIR2
 	ls $DIR1/bigdir/sub/dir/bu/deepfile
@@ -54,6 +59,7 @@ test_simple_sync() {
 }
 
 test_simple_conflict() {
+	echo "**test_simple_conflict**"
 	echo content1 >> $DIR1/mydir/a
 	echo content22 >> $DIR2/mydir/a
 
@@ -64,6 +70,7 @@ y" | $BSYNC $DIR1 $DIR2
 }
 
 test_symlinks() {
+	echo "**test_symlinks**"
 	# some symlinks
 	ln -s anytarget $DIR1/bigdir/thelink
 	ln -s roiiiuyer $DIR1/otherlink
@@ -75,6 +82,7 @@ test_symlinks() {
 }
 
 test_ssh_fail_noremotedir() {
+	echo "**test_ssh_fail_noremotedir**"
 	# ssh: should fail with no remote dir
 	if $BSYNC $SSHLOGIN:$SSHDIR $DIR1; then
 		return 1
@@ -82,17 +90,20 @@ test_ssh_fail_noremotedir() {
 }
 
 test_ssh_sync_portarg() {
+	echo "**test_ssh_sync_portarg**"
 	yes | $BSYNC -p22 $SSHLOGIN:$SSHDIR $DIR1
 	ssh $sshargs $SSHLOGIN "[ -h $SSHDIR/bigdir/thelink -a -f $SSHDIR/bigdir/sub/dir/bu/deepfile ]"
 }
 
 test_ssh_optionarg() {
+	echo "**test_ssh_optionarg**"
 	# -o option test
 	touch $DIR1/mydir/otheremptyfile
 	yes | $BSYNC -p22 -o "-v -p22" $SSHLOGIN:$SSHDIR $DIR1
 }
 
 test_ssh_moves() {
+	echo "**test_ssh_moves**"
 	# move test
 	# a move in local dir: a2
 	mv $DIR1/mydir/a $DIR1/a2
@@ -105,6 +116,7 @@ test_ssh_moves() {
 }
 
 test_exotic_filename_ssh() {
+	echo "**test_exotic_filename_ssh**"
 	touch "$DIR1/exotic:$(head -c30 /dev/urandom | tr -d '\0/')"
 	yes | $BSYNC $SSHLOGIN:$SSHDIR $DIR1
 	find $DIR1 | grep exotic:

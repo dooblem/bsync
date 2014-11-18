@@ -162,7 +162,7 @@ def rsync_check_install(ssh):
 # check if find supports printf option, and also remote find if ssh needed
 def find_check_command(ssh):
 	localfind = remotefind = None
-	findhelp = "(On OSX, you can download it with brew install)"
+	findhelp = "(On OSX, you can download it with 'brew install findutils')"
 	findargs = ["-maxdepth", "0" ,"-printf", "OK"]
 
 	with open(os.devnull, 'w') as devnull:
