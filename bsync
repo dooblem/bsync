@@ -515,6 +515,9 @@ def ask_conflict(f1, f2, path, tokeep):
 		print_line()
 		show_conflict(f1, f2, path)
 
+		if noninteractive:
+			sys.exit(1)
+
 		if resp!=None:
 			print("	1	Keep left version")
 			print("	2	Keep right version")
@@ -736,6 +739,7 @@ def usage():
 	usage+= "	DIR can be user@sshserver:DIR\n"
 	usage+= "	-v		Verbose\n"
 	usage+= "	-i		Ignore permissions\n"
+	usage+= "	-n		Non-interactive (exit immediately on conflict)\n"
 	usage+= "	-p PORT		Port for SSH\n"
 	usage+= "	-o SSHARGS	Custom options for SSH\n"
 	printerr(usage)
@@ -744,13 +748,13 @@ def usage():
 
 #### process commandline args
 try:
-	opts, args = getopt.gnu_getopt(sys.argv[1:], "vcip:o:")
+	opts, args = getopt.gnu_getopt(sys.argv[1:], "vcinp:o:")
 except getopt.GetoptError as err:
 	printerr(err)
 	usage()
 	sys.exit(2)
 
-verbose = check = ignoreperms = False
+verbose = check = ignoreperms = noninteractive = False
 sshport = None
 sshargs = ""
 for o, a in opts:
@@ -764,6 +768,8 @@ for o, a in opts:
 		sshport = a
 	elif o == "-o":
 		sshargs = a
+	elif o == "-n":
+		noninteractive = True
 	else:
 		assert False, "unhandled option"
 
