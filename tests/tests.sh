@@ -75,7 +75,7 @@ test_non_interactive() {
 	echo content34 > $DIR1/mydir/c
 	echo content678 > $DIR2/mydir/c
 
-	if $BSYNC -n $DIR1 $DIR2; then
+	if $BSYNC -b $DIR1 $DIR2; then
 		return 1
 	fi
 	grep content34 $DIR1/mydir/c

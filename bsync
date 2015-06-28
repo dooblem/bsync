@@ -516,7 +516,7 @@ def ask_conflict(f1, f2, path, tokeep):
 		show_conflict(f1, f2, path)
 
 		if noninteractive:
-			sys.exit(1)
+			sys.exit("Error: Conflict found in batch mode. Exiting.")
 
 		if resp!=None:
 			print("	1	Keep left version")
@@ -739,7 +739,7 @@ def usage():
 	usage+= "	DIR can be user@sshserver:DIR\n"
 	usage+= "	-v		Verbose\n"
 	usage+= "	-i		Ignore permissions\n"
-	usage+= "	-n		Non-interactive (exit immediately on conflict)\n"
+	usage+= "	-b		Batch mode (exit on conflict)\n"
 	usage+= "	-p PORT		Port for SSH\n"
 	usage+= "	-o SSHARGS	Custom options for SSH\n"
 	printerr(usage)
@@ -748,7 +748,7 @@ def usage():
 
 #### process commandline args
 try:
-	opts, args = getopt.gnu_getopt(sys.argv[1:], "vcinp:o:")
+	opts, args = getopt.gnu_getopt(sys.argv[1:], "vcibp:o:")
 except getopt.GetoptError as err:
 	printerr(err)
 	usage()
@@ -768,7 +768,7 @@ for o, a in opts:
 		sshport = a
 	elif o == "-o":
 		sshargs = a
-	elif o == "-n":
+	elif o == "-b":
 		noninteractive = True
 	else:
 		assert False, "unhandled option"
