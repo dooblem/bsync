@@ -72,15 +72,17 @@ y" | $BSYNC $DIR1 $DIR2
 test_non_interactive() {
 	echo "**test_non_interactive**"
         # sync in non-interactive mode. should perform sync and exit on first conflict
-	echo content34 > $DIR1/mydir/b
-        echo content678 > $DIR2/mydir/b
+	echo content34 > $DIR1/mydir/c
+	echo content678 > $DIR2/mydir/c
 
-        $BSYNC -n $DIR1 $DIR2
-	grep content34 $DIR1/mydir/b
-	grep content678 $DIR2/mydir/b
+	if $BSYNC -n $DIR1 $DIR2; then
+		return 1
+	fi
+	grep content34 $DIR1/mydir/c
+	grep content678 $DIR2/mydir/c
 
-	rm -f $DIR1/mydir/b
-	rm -f $DIR2/mydir/b
+	rm -f $DIR1/mydir/c
+	rm -f $DIR2/mydir/c
 }
 
 test_symlinks() {
