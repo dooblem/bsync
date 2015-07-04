@@ -741,7 +741,7 @@ def usage():
 	usage+= "	-i		Ignore permissions\n"
 	usage+= "	-b		Batch mode (exit on conflict)\n"
 	usage+= "	-p PORT		Port for SSH\n"
-	usage+= "	-y              Yes to all\n"
+	usage+= "	-y              Say yes to all copy & sync\n"
 	usage+= "	-o SSHARGS	Custom options for SSH\n"
 	printerr(usage)
 

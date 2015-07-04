@@ -43,7 +43,9 @@ Usage: bsync [options] DIR1 DIR2
 	DIR can be user@sshserver:DIR
 	-v              Verbose
 	-i              Ignore permissions
+	-b 				Batch mode (exit on conflict)
 	-p PORT         Port for SSH
+	-y				say yes to all copy & sync 
 	-o SSHARGS      Custom options for SSH
 ```
     
