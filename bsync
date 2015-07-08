@@ -741,15 +741,12 @@ def usage():
 	usage+= "	-i		Ignore permissions\n"
 	usage+= "	-b		Batch mode (exit on conflict)\n"
 	usage+= "	-p PORT		Port for SSH\n"
-	usage+= "	-y              Say yes to all copy & sync\n"
 	usage+= "	-o SSHARGS	Custom options for SSH\n"
 	printerr(usage)
 
 #####################################################
 
 #### process commandline args
-global yesToAll
-yesToAll = False
 try:
 	opts, args = getopt.gnu_getopt(sys.argv[1:], "vcibyp:o:")
 except getopt.GetoptError as err:
@@ -773,8 +770,6 @@ for o, a in opts:
 		sshargs = a
 	elif o == "-b":
 		noninteractive = True
-	elif o == "-y":
-		yesToAll = True
 	else:
 		assert False, "unhandled option"
 
@@ -1028,7 +1023,7 @@ print("Todo in "+args[0]+": "+get_dir_summary(mkdir1,moves1,rm1,rmdirs1, copy21,
 print("Todo in "+args[1]+": "+get_dir_summary(mkdir2,moves2,rm2,rmdirs2, copy12,sync12))
 
 resp = "none"
-if(yesToAll==True):
+if(noninteractive==True):
     resp = "y"
 else:
     while resp != "y" and resp != "n":
