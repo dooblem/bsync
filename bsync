@@ -748,7 +748,7 @@ def usage():
 
 #### process commandline args
 try:
-	opts, args = getopt.gnu_getopt(sys.argv[1:], "vcibp:o:")
+	opts, args = getopt.gnu_getopt(sys.argv[1:], "vcibyp:o:")
 except getopt.GetoptError as err:
 	printerr(err)
 	usage()
@@ -1023,13 +1023,17 @@ print("Todo in "+args[0]+": "+get_dir_summary(mkdir1,moves1,rm1,rmdirs1, copy21,
 print("Todo in "+args[1]+": "+get_dir_summary(mkdir2,moves2,rm2,rmdirs2, copy12,sync12))
 
 resp = "none"
-while resp != "y" and resp != "n":
-	resp = myinput("Apply actions? [y/N] ").lower()
-	if resp == "": resp = "n"
-print()
-if resp == "n":
-	print("Leaving files in place.")
-	sys.exit()
+if(noninteractive==True):
+    resp = "y"
+else:
+    while resp != "y" and resp != "n":
+            resp = myinput("Apply actions? [y/N] ").lower()
+            if resp == "": resp = "n"
+    print()
+    if resp == "n":
+            print("Leaving files in place.")
+            sys.exit()
+
 
 print("Applying actions...")
 
