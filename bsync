@@ -1023,9 +1023,7 @@ print("Todo in "+args[0]+": "+get_dir_summary(mkdir1,moves1,rm1,rmdirs1, copy21,
 print("Todo in "+args[1]+": "+get_dir_summary(mkdir2,moves2,rm2,rmdirs2, copy12,sync12))
 
 resp = "none"
-if(batchmode==True):
-    resp = "y"
-else:
+if not batchmode:
     while resp != "y" and resp != "n":
             resp = myinput("Apply actions? [y/N] ").lower()
             if resp == "": resp = "n"
@@ -1033,7 +1031,6 @@ else:
     if resp == "n":
             print("Leaving files in place.")
             sys.exit()
-
 
 print("Applying actions...")
 
