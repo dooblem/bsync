@@ -43,9 +43,8 @@ Usage: bsync [options] DIR1 DIR2
 	DIR can be user@sshserver:DIR
 	-v              Verbose
 	-i              Ignore permissions
-	-b 				Batch mode (exit on conflict)
+	-b 		Batch mode (exit on conflict)
 	-p PORT         Port for SSH
-	-y				say yes to all copy & sync 
 	-o SSHARGS      Custom options for SSH
 ```
     
@@ -61,6 +60,7 @@ Features
 * Move your sync dirs without loosing sync memory (filelists stored inside directories in `.bsync-snap-*` files)
 * Auto disable permissions on fat filesystems
 * MacOSX support (requirement: GNU find installed)
+* Non-interactive mode (Batch-mode), allow to use crond to do auto-sync.
 
 Limitations:
 * files ownership ignored (would matter if syncing from root user, but sufficient for regular users)
