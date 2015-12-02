@@ -515,7 +515,7 @@ def ask_conflict(f1, f2, path, tokeep):
 		print_line()
 		show_conflict(f1, f2, path)
 
-		if noninteractive:
+		if batchmode:
 			sys.exit("Error: Conflict found in batch mode. Exiting.")
 
 		if resp!=None:
@@ -741,6 +741,7 @@ def usage():
 	usage+= "	-i		Ignore permissions\n"
 	usage+= "	-b		Batch mode (exit on conflict)\n"
 	usage+= "	-p PORT		Port for SSH\n"
+	usage+= "	-k              Keep server-side files\n"
 	usage+= "	-o SSHARGS	Custom options for SSH\n"
 	printerr(usage)
 
@@ -748,13 +749,13 @@ def usage():
 
 #### process commandline args
 try:
-	opts, args = getopt.gnu_getopt(sys.argv[1:], "vcibp:o:")
+	opts, args = getopt.gnu_getopt(sys.argv[1:], "vcibkp:o:")
 except getopt.GetoptError as err:
 	printerr(err)
 	usage()
 	sys.exit(2)
 
-verbose = check = ignoreperms = noninteractive = False
+verbose = check = ignoreperms = batchmode = keep = False
 sshport = None
 sshargs = ""
 for o, a in opts:
@@ -769,7 +770,9 @@ for o, a in opts:
 	elif o == "-o":
 		sshargs = a
 	elif o == "-b":
-		noninteractive = True
+		batchmode = True
+	elif o == "-k":
+		keep = True
 	else:
 		assert False, "unhandled option"
 
@@ -900,12 +903,17 @@ for path, fo in origlist.items():
 		pass
 	elif f2 != None and samefiles(f2,fo):
 		# no f2 change --> f1 change only
-		if f1 == None:
+		if f1 == None :
 			# f1 deleted --> delete f2
+# La ligne magique!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+#Il faudrait que dans ces conditions, le fichier soit écrit dans le .bsync-ignore pour ne pas qu'il soit copié plus tard.
 			if f2.type == "d": # f2 isdir
-				rmdirs2.append(path)
+                            rmdirs2.append(path)
 			else:
-				rm2[fo.i1] = f2
+                            #bsi=open('.bsync-ign', 'a')
+                            #bsi.write(fo.path.decode("utf-8")+'\n')
+                            #os.system("sort -nr .bsync-ign | uniq > .bsync-ignore")
+                            rm2[fo.i1] = f2
 		else:
 			# f1 != None and f1 != fo.date --> f1 mod --> mod f2
 			sync12.append(path)
@@ -913,9 +921,10 @@ for path, fo in origlist.items():
 		# no f1 change --> f2 change only
 		if f2 == None:
 			if f1.type == "d": #f1 isdir
-				rmdirs1.append(path)
+                            rmdirs1.append(path)
 			else:
-				rm1[fo.i2] = f1
+                            print ("buzz")
+                            rm1[fo.i2] = f1
 		else:
 			sync21.append(path)
 	else:
@@ -1023,13 +1032,14 @@ print("Todo in "+args[0]+": "+get_dir_summary(mkdir1,moves1,rm1,rmdirs1, copy21,
 print("Todo in "+args[1]+": "+get_dir_summary(mkdir2,moves2,rm2,rmdirs2, copy12,sync12))
 
 resp = "none"
-while resp != "y" and resp != "n":
-	resp = myinput("Apply actions? [y/N] ").lower()
-	if resp == "": resp = "n"
-print()
-if resp == "n":
-	print("Leaving files in place.")
-	sys.exit()
+if not batchmode:
+    while resp != "y" and resp != "n":
+            resp = myinput("Apply actions? [y/N] ").lower()
+            if resp == "": resp = "n"
+    print()
+    if resp == "n":
+            print("Leaving files in place.")
+            sys.exit()
 
 print("Applying actions...")
 
