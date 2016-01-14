@@ -309,7 +309,7 @@ def get_ignores(ignorefile, ssh,dirname):
 # returns True if the path has to be ignored
 # ignore root path and .bsync files
 def ignorepath(path, ignoreset):
-	if path == b"" or path.startswith(b".bsync-"):
+	if path == b"" or path.startswith(b".bsync-snap"):
 		return True
 	else:
 		for ignore in ignoreset:
@@ -739,6 +739,7 @@ def usage():
 	usage+= "	DIR can be user@sshserver:DIR\n"
 	usage+= "	-v		Verbose\n"
 	usage+= "	-i		Ignore permissions\n"
+	usage+= "	-y		Ignore confirm changes prompt\n"
 	usage+= "	-b		Batch mode (exit on conflict)\n"
 	usage+= "	-p PORT		Port for SSH\n"
 	usage+= "	-o SSHARGS	Custom options for SSH\n"
@@ -748,13 +749,13 @@ def usage():
 
 #### process commandline args
 try:
-	opts, args = getopt.gnu_getopt(sys.argv[1:], "vcibp:o:")
+	opts, args = getopt.gnu_getopt(sys.argv[1:], "vycibp:o:")
 except getopt.GetoptError as err:
 	printerr(err)
 	usage()
 	sys.exit(2)
 
-verbose = check = ignoreperms = noninteractive = False
+yes = verbose = check = ignoreperms = noninteractive = False
 sshport = None
 sshargs = ""
 for o, a in opts:
@@ -762,6 +763,8 @@ for o, a in opts:
 		verbose = True
 	elif o == "-i":
 		ignoreperms = True
+	elif o == "-y":
+		yes = True
 	elif o == "-c":
 		check = True
 	elif o == "-p":
@@ -1023,6 +1026,8 @@ print("Todo in "+args[0]+": "+get_dir_summary(mkdir1,moves1,rm1,rmdirs1, copy21,
 print("Todo in "+args[1]+": "+get_dir_summary(mkdir2,moves2,rm2,rmdirs2, copy12,sync12))
 
 resp = "none"
+if yes:
+    resp = "y"
 while resp != "y" and resp != "n":
 	resp = myinput("Apply actions? [y/N] ").lower()
 	if resp == "": resp = "n"
