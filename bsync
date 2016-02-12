@@ -1023,13 +1023,15 @@ print("Todo in "+args[0]+": "+get_dir_summary(mkdir1,moves1,rm1,rmdirs1, copy21,
 print("Todo in "+args[1]+": "+get_dir_summary(mkdir2,moves2,rm2,rmdirs2, copy12,sync12))
 
 resp = "none"
-while resp != "y" and resp != "n":
-	resp = myinput("Apply actions? [y/N] ").lower()
-	if resp == "": resp = "n"
-print()
-if resp == "n":
-	print("Leaving files in place.")
-	sys.exit()
+
+if not noninteractive:
+	while resp != "y" and resp != "n":
+		resp = myinput("Apply actions? [y/N] ").lower()
+		if resp == "": resp = "n"
+	print()
+	if resp == "n":
+		print("Leaving files in place.")
+		sys.exit()
 
 print("Applying actions...")
 
