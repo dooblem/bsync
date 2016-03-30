@@ -142,6 +142,8 @@ def rsync_init(sshSrc,dirnameSrc, sshDst,dirnameDst):
 	rsyncdst = getdirstr(sshDst, dirnameDst)+"/"
 
 	args = [ "-a", "--files-from=-", "--from0", "--no-implied-dirs", "--out-format=rsync: %n%L" ]
+	if rsyncargs != None:
+		args += shlex.split(rsyncargs)
 	if ssh != None:
 		cmdlist = ssh.getcmdlist()
 		cmdlist.remove(ssh.userhost)
@@ -507,8 +509,11 @@ def print_line():
 # ask the user about conflicting changes
 # conflict can be on type, date, size, perms
 def ask_conflict(f1, f2, path, tokeep):
-	if tokeep=="1a" or tokeep=="2a":
+	if tokeep=="1a" or tokeep=="2a" or tokeep=="aa":
 		return tokeep
+
+	if autoanswer:
+		return autoanswer
 
 	resp = None
 	while True:
@@ -521,13 +526,15 @@ def ask_conflict(f1, f2, path, tokeep):
 		if resp!=None:
 			print("	1	Keep left version")
 			print("	2	Keep right version")
+			print("	a	Automatic (the most recent version, or not delete file/dir, or left side)")
 			print("	1a	Keep left version for all")
 			print("	2a	Keep right version for all")
+			print("	aa	Automatic for all (the most recent version, or not delete file/dir, or left side)")
 			print("  Please note: you will be able to confirm the actions later.\n")
 
-		resp = myinput("Which one do I keep? [1/2/1a/2a/Quit/Help] ")
+		resp = myinput("Which one do I keep? [1/2/a/1a/2a/aa/Quit/Help] ")
 
-		if resp == "1" or resp == "2" or resp == "1a" or resp == "2a":
+		if resp == "1" or resp == "2" or resp == "a" or resp == "1a" or resp == "2a" or resp == "aa":
 			return resp
 		elif resp == "q" or resp == "Q" or resp == "Quit":
 			sys.exit(0)
@@ -739,16 +746,17 @@ def usage():
 	usage+= "	DIR can be user@sshserver:DIR\n"
 	usage+= "	-v		Verbose\n"
 	usage+= "	-i		Ignore permissions\n"
-	usage+= "	-b		Batch mode (exit on conflict)\n"
+	usage+= "	-b ANSWER	Specify automatic answer for conflicts: 1 (left side), 2 (right side), a (auto) or e (exit)\n"
 	usage+= "	-p PORT		Port for SSH\n"
 	usage+= "	-o SSHARGS	Custom options for SSH\n"
+	usage+= "	-r RSYBCARGS	Custom options for rsync\n"
 	printerr(usage)
 
 #####################################################
 
 #### process commandline args
 try:
-	opts, args = getopt.gnu_getopt(sys.argv[1:], "vcibp:o:")
+	opts, args = getopt.gnu_getopt(sys.argv[1:], "vcib:p:o:r:")
 except getopt.GetoptError as err:
 	printerr(err)
 	usage()
@@ -756,6 +764,8 @@ except getopt.GetoptError as err:
 
 verbose = check = ignoreperms = noninteractive = False
 sshport = None
+autoanswer = None
+rsyncargs = None
 sshargs = ""
 for o, a in opts:
 	if o == "-v":
@@ -768,8 +778,15 @@ for o, a in opts:
 		sshport = a
 	elif o == "-o":
 		sshargs = a
+	elif o == "-r":
+		rsyncargs = a
 	elif o == "-b":
 		noninteractive = True
+		if a in [ '1', '2', 'a', 'e' ]:
+			if a != "e":
+				autoanswer = a + 'a'
+		else:
+			assert False, "unhandled option"
 	else:
 		assert False, "unhandled option"
 
@@ -939,6 +956,24 @@ for path, fo in origlist.items():
 						copy12.append(f1)
 				else:
 					sync12.append(path)
+		elif tokeep[0] == "a": #a or aa
+			if f1 == None:
+				if f2.type == "d":
+					mkdir1.append(f2)
+				else:
+					copy21.append(f2)
+			elif f2 == None:
+				if f1.type == "d":
+					mkdir2.append(f1)
+				else:
+					copy12.append(f1)
+			elif f1.type != "d" and f2.type != "d":
+				if f1.date >= f2.date:
+					sync12.append(path)
+				else:
+					sync21.append(path)
+			else:
+				sync12.append(path)
 		else: # tokeep == 2
 			if f2 == None:
 				if f1.type == "d": # f1 isdir
@@ -978,6 +1013,14 @@ for path, f1 in dir1.items():
 		tokeep = ask_conflict(f1, f2, path, tokeep);
 		if tokeep[0] == "1":
 			sync12.append(path)
+		elif tokeep[0] == "a": #a or aa
+			if f1.type != "d" and f2.type != "d":
+				if f1.date >= f2.date:
+					sync12.append(path)
+				else:
+					sync21.append(path)
+			else:
+				sync12.append(path)
 		else: # tokeep == 2
 			sync21.append(path)
 
@@ -1022,7 +1065,7 @@ print()
 print("Todo in "+args[0]+": "+get_dir_summary(mkdir1,moves1,rm1,rmdirs1, copy21,sync21))
 print("Todo in "+args[1]+": "+get_dir_summary(mkdir2,moves2,rm2,rmdirs2, copy12,sync12))
 
-resp = "none"
+resp = 'y' if noninteractive else 'none'
 while resp != "y" and resp != "n":
 	resp = myinput("Apply actions? [y/N] ").lower()
 	if resp == "": resp = "n"
