@@ -515,7 +515,7 @@ def ask_conflict(f1, f2, path, tokeep):
 		print_line()
 		show_conflict(f1, f2, path)
 
-		if noninteractive:
+		if batch:
 			sys.exit("Error: Conflict found in batch mode. Exiting.")
 
 		if resp!=None:
@@ -754,7 +754,7 @@ except getopt.GetoptError as err:
 	usage()
 	sys.exit(2)
 
-verbose = check = ignoreperms = noninteractive = False
+verbose = check = ignoreperms = batch = False
 sshport = None
 sshargs = ""
 for o, a in opts:
@@ -769,7 +769,7 @@ for o, a in opts:
 	elif o == "-o":
 		sshargs = a
 	elif o == "-b":
-		noninteractive = True
+		batch = True
 	else:
 		assert False, "unhandled option"
 
@@ -1023,6 +1023,8 @@ print("Todo in "+args[0]+": "+get_dir_summary(mkdir1,moves1,rm1,rmdirs1, copy21,
 print("Todo in "+args[1]+": "+get_dir_summary(mkdir2,moves2,rm2,rmdirs2, copy12,sync12))
 
 resp = "none"
+if batch: resp = "y"
+
 while resp != "y" and resp != "n":
 	resp = myinput("Apply actions? [y/N] ").lower()
 	if resp == "": resp = "n"
