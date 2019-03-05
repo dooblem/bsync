@@ -464,6 +464,7 @@ def getdatestr(f):
 
 def getfilemode(type, perms):
 	if type=="f": type="-"
+	if perms == "": return type
 	try:
 		# filemode() only exists in pyton3.3
 		return type + stat.filemode(int(perms, 8))[1:]
@@ -606,8 +607,8 @@ def print_files(fo, f1, f2):
 	f2str = f2str = "i:"+f2.i+" d:"+str(f2.date) if f2!=None else ""
 	print("%s: %s | %s" % (fo.path, f1str, f2str))
 def print_files12(path, f1, f2):
-	f1str = f1str = "i:"+f1.i+" d:"+str(f1.date) if f1!=None else ""
-	f2str = f2str = "i:"+f2.i+" d:"+str(f2.date) if f2!=None else ""
+	f1str = f1str = "i:"+f1.i+" d:"+str(f1.date)+" p:"+str(f1.perms) if f1!=None else ""
+	f2str = f2str = "i:"+f2.i+" d:"+str(f2.date)+" p:"+str(f2.perms) if f2!=None else ""
 	print("%s: %s | %s" % (path, f1str, f2str))
 
 # print actions before asking user validation
@@ -923,6 +924,7 @@ for path, fo in origlist.items():
 		# f1 != None and f2 != None --> f1.date != f2.date (!= fo.date)
 		# f1 == None and f2 != None
 		# f1 != None and f2 == None
+		#print_files(fo,f1,f2)
 
 		tokeep = ask_conflict(f1, f2, path, tokeep);
 		if tokeep[0] == "1": #1 or 1a
