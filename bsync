@@ -141,7 +141,7 @@ def rsync_init(sshSrc,dirnameSrc, sshDst,dirnameDst):
 	rsyncsrc = getdirstr(sshSrc, dirnameSrc)+"/"
 	rsyncdst = getdirstr(sshDst, dirnameDst)+"/"
 
-	args = [ "-a", "--files-from=-", "--from0", "--no-implied-dirs", "--out-format=rsync: %n%L" ]
+	args = [ "-rLptgoD", "--files-from=-", "--from0", "--no-implied-dirs", "--out-format=rsync: %n%L" ]
 	if ssh != None:
 		cmdlist = ssh.getcmdlist()
 		cmdlist.remove(ssh.userhost)
@@ -210,7 +210,7 @@ def rsync_check(sshSrc,dirnameSrc, sshDst,dirnameDst):
 	rsyncsrc = getdirstr(sshSrc, dirnameSrc)+"/"
 	rsyncdst = getdirstr(sshDst, dirnameDst)+"/"
 
-	args = [ "-anO", "--delete", "--out-format=%n%L", "--exclude=/.bsync-snap-*" ]
+	args = [ "-rLptgoDnO", "--delete", "--out-format=%n%L", "--exclude=/.bsync-snap-*" ]
 	if ssh != None:
 		args.append("-e "+ssh.getcmdstr())
 
@@ -227,7 +227,7 @@ def rsync_check(sshSrc,dirnameSrc, sshDst,dirnameDst):
 def make_snapshot(ssh,dirname, oldsnapname, newsnapname):
 	global findformat, findcmdlocal, findcmdremote
 
-	cmd = " %s -fprintf %s '%s'" % (quote(dirname), quote(dirname+"/"+newsnapname), findformat)
+	cmd = " -L %s -fprintf %s '%s'" % (quote(dirname), quote(dirname+"/"+newsnapname), findformat)
 	if oldsnapname!=None:
 		cmd+= " && rm -f "+quote(dirname+"/"+oldsnapname)
 	# remove inconsistent newsnap if error in find
@@ -251,9 +251,9 @@ def make_snapshots(ssh1,dir1name, ssh2,dir2name, oldsnapname):
 def get_find_proc(ssh, dirname):
 	global findformat, findcmdlocal, findcmdremote
 	if ssh==None:
-		return subprocess.Popen([ findcmdlocal, dirname, "-printf", findformat ], stdout=subprocess.PIPE)
+		return subprocess.Popen([ findcmdlocal, "-L", dirname, "-printf", findformat ], stdout=subprocess.PIPE)
 	else:
-		return subprocess.Popen(ssh.getcmdlist()+[findcmdremote+" "+quote(dirname)+" -printf '"+findformat+"'" ], stdout=subprocess.PIPE)
+		return subprocess.Popen(ssh.getcmdlist()+[findcmdremote+" -L "+quote(dirname)+" -printf '"+findformat+"'" ], stdout=subprocess.PIPE)
 
 # get a file descriptor to read the snapshot file
 def get_snap_fd(ssh, dirname, snapname):
