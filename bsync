@@ -138,8 +138,15 @@ def rsync_init(sshSrc,dirnameSrc, sshDst,dirnameDst):
 	#
 	#rsync ssh/dir2 --> local/dir1
 	#rsync local/dir2 --> ssh/dir1
-	rsyncsrc = getdirstr(sshSrc, dirnameSrc)+"/"
-	rsyncdst = getdirstr(sshDst, dirnameDst)+"/"
+	rsyncsrc = getdirstr(sshSrc, dirnameSrc)
+	rsyncdst = getdirstr(sshDst, dirnameDst)
+	if os.name == "nt":
+		# workaround for bug in cwRsync; expecting it to run under CygWin
+		rsyncsrc = re.sub(r'^(.):', r'/cygdrive/\1', rsyncsrc)
+		rsyncdst = re.sub(r'^(.):', r'/cygdrive/\1', rsyncdst)
+	else:
+		rsyncsrc += "/"
+		rsyncdst += "/"
 
 	args = [ "-a", "--files-from=-", "--from0", "--no-implied-dirs", "--out-format=rsync: %n%L" ]
 	if ssh != None:
@@ -207,8 +214,15 @@ def fs_check_perms(ssh, dirname):
 
 # check with rsync that directories are identical (-c flag)
 def rsync_check(sshSrc,dirnameSrc, sshDst,dirnameDst):
-	rsyncsrc = getdirstr(sshSrc, dirnameSrc)+"/"
-	rsyncdst = getdirstr(sshDst, dirnameDst)+"/"
+	rsyncsrc = getdirstr(sshSrc, dirnameSrc)
+	rsyncdst = getdirstr(sshDst, dirnameDst)
+	if os.name == "nt":
+		# workaround for bug in cwRsync; expecting it to run under CygWin
+		rsyncsrc = re.sub(r'^(.):', r'/cygdrive/\1', rsyncsrc)
+		rsyncdst = re.sub(r'^(.):', r'/cygdrive/\1', rsyncdst)
+	else:
+		rsyncsrc += "/"
+		rsyncdst += "/"
 
 	args = [ "-anO", "--delete", "--out-format=%n%L", "--exclude=/.bsync-snap-*" ]
 	if ssh != None:
@@ -217,7 +231,8 @@ def rsync_check(sshSrc,dirnameSrc, sshDst,dirnameDst):
 	diff = subprocess.check_output(["rsync"]+args+[rsyncsrc, rsyncdst], universal_newlines=True).split("\n")
 
 	diff.remove("")
-	diff.remove("./")
+	if os.name != "nt":
+		diff.remove("./")
 
 	if len(diff) != 0:
 		sys.exit("Error: rsync_check differences:\n"+str(diff))
@@ -227,16 +242,16 @@ def rsync_check(sshSrc,dirnameSrc, sshDst,dirnameDst):
 def make_snapshot(ssh,dirname, oldsnapname, newsnapname):
 	global findformat, findcmdlocal, findcmdremote
 
-	cmd = " %s -fprintf %s '%s'" % (quote(dirname), quote(dirname+"/"+newsnapname), findformat)
+	cmd = [dirname, "-fprintf", dirname+newsnapname, findformat]
 	if oldsnapname!=None:
-		cmd+= " && rm -f "+quote(dirname+"/"+oldsnapname)
+		cmd+= ["&&", "rm", "-f", dirname+oldsnapname]
 	# remove inconsistent newsnap if error in find
-	cmd+= " || ( rm -f "+quote(dirname+"/"+newsnapname)+" && false )"
+	cmd+= ["||", "(", "rm", "-f", dirname+newsnapname, "&&", "false", ")"]
 
 	if ssh==None:
-		ret = subprocess.call(findcmdlocal+cmd, shell=True)
+		ret = subprocess.call([findcmdlocal]+cmd, shell=True)
 	else:
-		ret = subprocess.call(ssh.getcmdlist()+[findcmdremote+cmd])
+		ret = subprocess.call(ssh.getcmdlist()+[findcmdremote]+cmd)
 
 	if ret != 0: sys.exit("Error making a snapshot.")
 
@@ -741,6 +756,7 @@ def usage():
 	usage+= "	-v		Verbose\n"
 	usage+= "	-i		Ignore permissions\n"
 	usage+= "	-b		Batch mode (exit on conflict)\n"
+	usage+= "	-c		Check that directories are identical\n"
 	usage+= "	-p PORT		Port for SSH\n"
 	usage+= "	-o SSHARGS	Custom options for SSH\n"
 	printerr(usage)
@@ -783,10 +799,10 @@ dir2name = args[1]
 
 # get ssh connection
 ssh = ssh1 = ssh2 = None
-if ':' in dir1name:
+if ':' in dir1name[2:]:
 	sshuserhost, dir1name = dir1name.split(':', 1)
 	ssh = ssh1 = SshCon(sshuserhost, sshport, sshargs)
-if ':' in dir2name:
+if ':' in dir2name[2:]:
 	sshuserhost, dir2name = dir2name.split(':', 1)
 	ssh = ssh2 = SshCon(sshuserhost, sshport, sshargs)
 if ssh1!=None and ssh2!=None:
@@ -800,8 +816,8 @@ rsync_check_install(ssh)
 findcmdlocal, findcmdremote = find_check_command(ssh)
 
 # add trailing slashes (to avoid problems with symlinked dirs)
-dir1name = os.path.join(dir1name, '')
-dir2name = os.path.join(dir2name, '')
+dir1name = os.path.join(dir1name, '').replace('\\', '/')
+dir2name = os.path.join(dir2name, '').replace('\\', '/')
 
 # try to get console width, for displaying actions, if running interactive
 try:
