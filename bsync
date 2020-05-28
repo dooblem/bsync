@@ -815,6 +815,10 @@ def usage():
 	usage+= "	-i		Ignore permissions\n"
 	usage+= "	-b		Batch mode (skip conflicts)\n"
 	usage+= "	-c		Check that directories are identical\n"
+	usage+= "	-m MODE 	sync|backup|mirror (defult sync)\n"
+	usage+= "				backup - copy new and modified from DIR1 to DIR2\n"
+	usage+= "				mirror - backup + missing in DIR1 remove from DIR2\n"
+	usage+= "				sync   - bidirectional mirror\n"
 	usage+= "	-p PORT		Port for SSH\n"
 	usage+= "	-o SSHARGS	Custom options for SSH\n"
 	printerr(usage)
@@ -823,13 +827,14 @@ def usage():
 
 #### process commandline args
 try:
-	opts, args = getopt.gnu_getopt(sys.argv[1:], "vcibp:o:")
+	opts, args = getopt.gnu_getopt(sys.argv[1:], "vcibp:o:m:")
 except getopt.GetoptError as err:
 	printerr(err)
 	usage()
 	sys.exit(2)
 
 verbose = check = ignoreperms = batch = False
+syncmode='sync'
 sshport = None
 sshargs = ""
 for o, a in opts:
@@ -839,6 +844,8 @@ for o, a in opts:
 		ignoreperms = True
 	elif o == "-c":
 		check = True
+	elif o == "-m":
+		syncmode = a
 	elif o == "-p":
 		sshport = a
 	elif o == "-o":
@@ -847,6 +854,7 @@ for o, a in opts:
 		batch = True
 	else:
 		assert False, "unhandled option"
+assert syncmode in ('sync', 'backup', 'mirror'), "invalid mode option"
 
 if len(args) != 2:
 	usage()
@@ -980,7 +988,9 @@ for path, fo in origlist.items():
 		# no f2 change --> f1 change only
 		if f1 == None:
 			# f1 deleted --> delete f2
-			if f2.type == "d": # f2 isdir
+			if syncmode == "backup":
+				unresolved.append(fo)
+			elif f2.type == "d": # f2 isdir
 				rmdirs2.append(path)
 			else:
 				rm2[fo.i1] = f2
@@ -989,13 +999,19 @@ for path, fo in origlist.items():
 			sync12.append(path)
 	elif f1 != None and samefiles(f1,fo):
 		# no f1 change --> f2 change only
-		if f2 == None:
+		if syncmode != "sync":
+			unresolved.append(fo)
+		elif f2 == None:
 			if f1.type == "d": #f1 isdir
 				rmdirs1.append(path)
 			else:
 				rm1[fo.i2] = f1
 		else:
 			sync21.append(path)
+	elif syncmode == "backup" and f1 == None:
+		# f1 change and f2 change --> confict
+		# f1 == None and f2 != None --> keep unresolved for "backup" syncmode
+		unresolved.append(fo)
 	else:
 		# f1 change and f2 change --> confict
 		# f1 != None and f2 != None --> f1.date != f2.date (!= fo.date)
@@ -1070,10 +1086,13 @@ for path, f1 in dir1.items():
 printv("Analysing remaining new paths in dir2...")
 # process remaining new paths in dir2
 for path, f2 in dir2.items():
-	if f2.type == "d":
-		mkdir1.append(f2)
-	else:
-		copy21.append(f2)
+	if syncmode == "sync":
+		if f2.type == "d":
+			mkdir1.append(f2)
+		else:
+			copy21.append(f2)
+	else: #leave conflict unresolved
+		unresolved.append(OrigFile(None,None,path,None,None,None,None,None,None))
 
 # moves detection
 copy12, rm2, moves2 = check_moves(copy12, rm2)
@@ -1091,8 +1110,10 @@ if len(mkdir1)==0 and len(moves1)==0 and len(rm1)==0 and len(rmdirs1)==0 and len
 	if check: rsync_check(ssh1,dir1name, ssh2,dir2name)
 	if answered_N:
 		print("Nothing to do. Some conflicts stay unresolved.")
-	else:
+	elif syncmode == "sync":
 		print("Identical directories. Nothing to do.")
+	else:
+		print("Target dir is up to date. Nothing to do.")
 	if snapname == None:
 		make_snapshots(ssh1,dir1name, ssh2,dir2name, snapname, unresolved)
 	sys.exit()
