@@ -43,7 +43,7 @@ def tostr(o):
 
 # a file record from snapshots (original file)
 class OrigFile():
-	def __init__(self, inode1,inode2, path,type,date,size,perms):
+	def __init__(self, inode1,inode2, path,type,date,size,perms, r1,r2):
 		self.path = path
 		self.i1 = inode1
 		self.i2 = inode2
@@ -51,6 +51,8 @@ class OrigFile():
 		self.date = date
 		self.size = size
 		self.perms = perms
+		self.r1 = r1
+		self.r2 = r2
 
 # a file record from an actual directory
 class DirFile():
@@ -237,9 +239,52 @@ def rsync_check(sshSrc,dirnameSrc, sshDst,dirnameDst):
 	if len(diff) != 0:
 		sys.exit("Error: rsync_check differences:\n"+str(diff))
 
+# correct the snapshot with records from the original loaded snaphot,
+# effectively reseting the unresolved records to their original value
+def fix_unresolved(ssh,dirname, snapname, unresolved):
+	sbproc = None
+	f = None
+	try:
+		# if we need a ssh shell
+		if ssh != None:
+			cmd = ["cat - > %s" % quote(dirname+"/"+snapname)+".tmp"]
+			sbproc = subprocess.Popen(ssh.getcmdlist()+cmd, stdin=subprocess.PIPE)
+		else:
+			f = open(dirname+"/"+snapname+".tmp", "w")
+			sbproc = subprocess.Popen(["cat", "-"], stdin=subprocess.PIPE, stdout=f)
+
+		if sbproc == None:
+			sys.exit("Error updating a snapshot.")
+
+		# filter out unresolved records from the current snapshot
+		fd = get_snap_fd(ssh, dirname, snapname)
+		gen = fileLineIter(fd)
+
+		record = read_file_record(gen)
+		if record==None: sys.exit("Error reading files from filelist") #should be at least one record (dir root)
+		while record != None:
+			inode,path,type,date,size,perms,rec = record
+			if path not in unresolved:
+				sbproc.stdin.write( rec + b"\0" )
+			record = read_file_record(gen)
+
+		# append unresolved records
+		for rec in unresolved.values():
+			if rec != None:
+				sbproc.stdin.write( rec + b"\0" )
+		sbproc.stdin.flush()
+	finally:
+		# cleanup
+		sbproc.stdin.close()
+		sbproc.wait()
+		if f != None:
+			f.close()
+		if sbproc.returncode != 0:
+			sys.exit("Error in process updating a snapshot.")
+
 # take a snapshot of files states from dir, using find. store it in .bsync-snap-XXXX
 # snap format: inode, path, type, date...
-def make_snapshot(ssh,dirname, oldsnapname, newsnapname):
+def make_snapshot(ssh,dirname, oldsnapname, newsnapname, unresolved):
 	global findformat, findcmdlocal, findcmdremote
 
 	cmd = [dirname, "-fprintf", dirname+newsnapname, findformat]
@@ -255,12 +300,15 @@ def make_snapshot(ssh,dirname, oldsnapname, newsnapname):
 
 	if ret != 0: sys.exit("Error making a snapshot.")
 
-def make_snapshots(ssh1,dir1name, ssh2,dir2name, oldsnapname):
+	if unresolved:
+		fix_unresolved(ssh,dirname, newsnapname, unresolved)
+
+def make_snapshots(ssh1,dir1name, ssh2,dir2name, oldsnapname, unresolved):
 	newsnapname = ".bsync-snap-"+datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")
 	print("Updating filelists...")
 	printv("Updating snap files: "+newsnapname+"...")
-	make_snapshot(ssh1,dir1name, oldsnapname,newsnapname)
-	make_snapshot(ssh2,dir2name, oldsnapname,newsnapname)
+	make_snapshot(ssh1,dir1name, oldsnapname,newsnapname, {fo.path:fo.r1 for fo in unresolved})
+	make_snapshot(ssh2,dir2name, oldsnapname,newsnapname, {fo.path:fo.r2 for fo in unresolved})
 
 # run find in a directory to dump its content
 def get_find_proc(ssh, dirname):
@@ -364,6 +412,7 @@ def read_file_record(gen):
 	i=p=t=d=s=perms=None
 	try:
 		i,p,t,d,s,perms = next(gen),next(gen),next(gen),next(gen),next(gen),next(gen)
+		rec = b"\0".join((i,p,t,d,s,perms))
 		# convert all to str except path
 		i = i.decode()
 		t = t.decode()
@@ -380,7 +429,7 @@ def read_file_record(gen):
 	if t=="d": d=s="0"	# ignore dates/size for dirs (set to zero)
 	if ignoreperms: perms = ""
 
-	return i,p,t,d,s,perms
+	return i,p,t,d,s,perms, rec
 
 # load original file records from snapshots, and ignore entries
 def load_orig(ssh1,dir1name, ssh2,dir2name):
@@ -418,10 +467,10 @@ def load_orig(ssh1,dir1name, ssh2,dir2name):
 	record = read_file_record(gen1)
 	if record==None: sys.exit("Error reading files from dir1 filelist") #should be at least one record (dir root)
 	while record != None:
-		inode,path,type,date,size,perms = record
+		inode,path,type,date,size,perms,rec = record
 
 		if not ignorepath(path, ignores):
-			orig[path] = OrigFile(inode,None, path,type,date,size,perms)
+			orig[path] = OrigFile(inode,None, path,type,date,size,perms, rec,None)
 		
 		record = read_file_record(gen1)
 
@@ -429,7 +478,7 @@ def load_orig(ssh1,dir1name, ssh2,dir2name):
 	record = read_file_record(gen2)
 	if record==None: sys.exit("Error reading files from dir2 filelist")
 	while record != None:
-		inode,path,type,date,size,perms = record
+		inode,path,type,date,size,perms,rec = record
 
 		if not ignorepath(path, ignores):
 			#path not in orig: can happen if using ignore, then removing ignore, path will be considered as new
@@ -439,6 +488,9 @@ def load_orig(ssh1,dir1name, ssh2,dir2name):
 					sys.exit("Error: difference in snaps for path: "+tostr(path)) 
 
 				origfile.i2 = inode #set the second inode
+				origfile.r2 = rec #set the second record
+			else:
+				orig[path] = OrigFile(None,inode, path,type,date,size,perms, None,rec)
 		
 		record = read_file_record(gen2)
 
@@ -460,7 +512,7 @@ def load_dir(ssh, dirname, ignores):
 
 	record = read_file_record(gen)
 	while record != None:
-		inode,path,type,date,size,perms = record
+		inode,path,type,date,size,perms,rec = record
 
 		if not ignorepath(path, ignores):
 			dir[path] = DirFile(inode, path, type, date, size, perms)
@@ -523,7 +575,8 @@ def print_line():
 # ask the user about conflicting changes
 # conflict can be on type, date, size, perms
 def ask_conflict(f1, f2, path, tokeep):
-	if tokeep=="1a" or tokeep=="2a":
+	global answered_N
+	if tokeep in ("1a", "2a", "na"):
 		return tokeep
 
 	resp = None
@@ -532,21 +585,26 @@ def ask_conflict(f1, f2, path, tokeep):
 		show_conflict(f1, f2, path)
 
 		if batch:
-			sys.exit("Error: Conflict found in batch mode. Exiting.")
+			answered_N = True
+			return "n"
 
 		if resp!=None:
 			print("	1	Keep left version")
 			print("	2	Keep right version")
 			print("	1a	Keep left version for all")
 			print("	2a	Keep right version for all")
+			print("	N	Nothing, leave unresolved")
+			print("	Na	Nothing, leave unresolved")
 			print("  Please note: you will be able to confirm the actions later.\n")
 
-		resp = myinput("Which one do I keep? [1/2/1a/2a/Quit/Help] ")
+		resp = myinput("Which one do I keep? [1/2/1a/2a/N/Na/Quit/Help] ").lower()
 
-		if resp == "1" or resp == "2" or resp == "1a" or resp == "2a":
+		if resp in ("1", "1a", "2", "2a", "n", "na"):
+			if resp in ("n", "na"):
+				answered_N = True
 			return resp
-		elif resp == "q" or resp == "Q" or resp == "Quit":
-			sys.exit(0)
+		elif resp == "q" or resp == "quit":
+			sys.exit(1)
 
 #### file actions
 def remove(shproc, path):
@@ -755,7 +813,7 @@ def usage():
 	usage+= "	DIR can be user@sshserver:DIR\n"
 	usage+= "	-v		Verbose\n"
 	usage+= "	-i		Ignore permissions\n"
-	usage+= "	-b		Batch mode (exit on conflict)\n"
+	usage+= "	-b		Batch mode (skip conflicts)\n"
 	usage+= "	-c		Check that directories are identical\n"
 	usage+= "	-p PORT		Port for SSH\n"
 	usage+= "	-o SSHARGS	Custom options for SSH\n"
@@ -894,17 +952,20 @@ copy21 = []
 sync12 = []
 sync21 = []
 tokeep = None
+unresolved = []
+answered_N = False
 # process all original paths (from snapshot)
 for path, fo in origlist.items():
-	# f1==None f2==None				deleted both sides
-	# f1==None f2=!None f2.d==fo.d			f1 chg only
-	# f1==None f2=!None f2.d!=fo.d			conflict
+	# f1==None f2==None	fo!=None			deleted both sides
+	# f1==None f2!=None f2.d==fo.d			f1 chg only
+	# f1==None f2!=None f2.d!=fo.d			conflict
 	# f1!=None f2==None f1.d==fo.d			f2 chg only
 	# f1!=None f2==None f1.d!=fo.d			conflict
-	# f1!=None f2!=None f1.d==fo.d f2.d==fo.d	no change
-	# f1!=None f2!=None f1.d==fo.d f2.d!=fo.d	f2 chg only
-	# f1!=None f2!=None f1.d!=fo.d f2.d==fo.d	f1 chg only
-	# f1!=None f2!=None f1.d!=fo.d f2.d!=fo.d	conflict
+	# f1!=None f2!=None f1.d==fo.d==f2.d	no change
+	# f1!=None f2!=None f1.d==fo.d!=f2.d	f2 chg only
+	# f1!=None f2!=None f1.d!=fo.d==f2.d	f1 chg only
+	# f1!=None f2!=None f1.d==f2.d!=fo.d	same change
+	# f1!=None f2!=None f1.d!=f2.d!=fo.d	conflict
 
 	f1 = dir1[path] if path in dir1 else None
 	f2 = dir2[path] if path in dir2 else None
@@ -957,7 +1018,7 @@ for path, fo in origlist.items():
 						copy12.append(f1)
 				else:
 					sync12.append(path)
-		else: # tokeep == 2
+		elif tokeep[0] == "2": #2 or 2a
 			if f2 == None:
 				if f1.type == "d": # f1 isdir
 					rmdirs1.append(path)
@@ -971,6 +1032,8 @@ for path, fo in origlist.items():
 						copy21.append(f2)
 				else:
 					sync21.append(path)
+		else: #leave conflict unresolved
+			unresolved.append(fo)
 	#ifend
 
 	dir1.pop(path, None)
@@ -994,10 +1057,12 @@ for path, f1 in dir1.items():
 	else:
 		# f2!=None and f2.date != f1.date --> conflict
 		tokeep = ask_conflict(f1, f2, path, tokeep);
-		if tokeep[0] == "1":
+		if tokeep[0] == "1": #1 or 1a
 			sync12.append(path)
-		else: # tokeep == 2
+		elif tokeep[0] == "2": #2 or 2a
 			sync21.append(path)
+		else: #leave conflict unresolved
+			unresolved.append(OrigFile(None,None,path,None,None,None,None,None,None))
 
 	dir2.pop(path, None)
 
@@ -1024,9 +1089,12 @@ rmdirs2.sort(reverse=True) # TODO someth cleaner than sort?
 if len(mkdir1)==0 and len(moves1)==0 and len(rm1)==0 and len(rmdirs1)==0 and len(copy21)==0 and len(sync21)==0 and \
    len(mkdir2)==0 and len(moves2)==0 and len(rm2)==0 and len(rmdirs2)==0 and len(copy12)==0 and len(sync12)==0:
 	if check: rsync_check(ssh1,dir1name, ssh2,dir2name)
-	print("Identical directories. Nothing to do.")
+	if answered_N:
+		print("Nothing to do. Some conflicts stay unresolved.")
+	else:
+		print("Identical directories. Nothing to do.")
 	if snapname == None:
-		make_snapshots(ssh1,dir1name, ssh2,dir2name, snapname)
+		make_snapshots(ssh1,dir1name, ssh2,dir2name, snapname, unresolved)
 	sys.exit()
 
 if len(conflicts) > 0: print_line()
@@ -1063,6 +1131,6 @@ apply_rsync_actions(ssh2,dir2name,ssh1,dir1name, copy21 + sync21)
 
 if check: rsync_check(ssh1,dir1name, ssh2,dir2name)
 
-make_snapshots(ssh1,dir1name, ssh2,dir2name, snapname)
+make_snapshots(ssh1,dir1name, ssh2,dir2name, snapname, unresolved)
 
 print("Done!")
