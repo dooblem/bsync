@@ -40,11 +40,17 @@ bsync help and options:
 ```
 Usage: bsync [options] DIR1 DIR2
 
-	DIR can be user@sshserver:DIR
-	-v              Verbose
-	-i              Ignore permissions
-	-p PORT         Port for SSH
-	-o SSHARGS      Custom options for SSH
+        DIR can be user@sshserver:DIR
+        -v              Verbose
+        -i              Ignore permissions
+        -b              Batch mode (skip conflicts)
+        -c              Check that directories are identical
+        -m MODE         sync|backup|mirror (defult sync)
+                                backup - copy new and modified from DIR1 to DIR2
+                                mirror - backup + missing in DIR1 remove from DIR2
+                                sync   - bidirectional mirror
+        -p PORT         Port for SSH
+        -o SSHARGS      Custom options for SSH
 ```
     
 Features
