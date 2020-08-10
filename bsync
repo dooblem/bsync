@@ -282,14 +282,21 @@ def fix_unresolved(ssh,dirname, snapname, unresolved):
 		if sbproc.returncode != 0:
 			sys.exit("Error in process updating a snapshot.")
 
+def del_snapshot(ssh, dirname, snapname):
+	try:
+		if ssh==None:
+			os.remove(dirname+snapname)
+		else:
+			subprocess.check_call(ssh.getcmdlist()+["rm", "-f", dirname+snapname])
+	except:
+		pass
+
 # take a snapshot of files states from dir, using find. store it in .bsync-snap-XXXX
 # snap format: inode, path, type, date...
-def make_snapshot(ssh,dirname, oldsnapname, newsnapname, unresolved):
+def make_snapshot(ssh,dirname, newsnapname, unresolved):
 	global findformat, findcmdlocal, findcmdremote
 
 	cmd = [dirname, "-fprintf", dirname+newsnapname, findformat]
-	if oldsnapname!=None:
-		cmd+= ["&&", "rm", "-f", dirname+oldsnapname]
 	# remove inconsistent newsnap if error in find
 	cmd+= ["||", "(", "rm", "-f", dirname+newsnapname, "&&", "false", ")"]
 
@@ -307,8 +314,13 @@ def make_snapshots(ssh1,dir1name, ssh2,dir2name, oldsnapname, unresolved):
 	newsnapname = ".bsync-snap-"+datetime.datetime.now().strftime("%Y%m%d%H%M%S.%f")
 	print("Updating filelists...")
 	printv("Updating snap files: "+newsnapname+"...")
-	make_snapshot(ssh1,dir1name, oldsnapname,newsnapname, {fo.path:fo.r1 for fo in unresolved})
-	make_snapshot(ssh2,dir2name, oldsnapname,newsnapname, {fo.path:fo.r2 for fo in unresolved})
+	make_snapshot(ssh1, dir1name, newsnapname, {fo.path:fo.r1 for fo in unresolved})
+	make_snapshot(ssh2, dir2name, newsnapname, {fo.path:fo.r2 for fo in unresolved})
+	# remove old snapshots only when new snapshots were created successfully, in order to prevent
+	# breaking backup completely when snapshot1 is created successfully but snapshot2 fails
+	if oldsnapname != None:
+		del_snapshot(ssh1, dir1name, oldsnapname)
+		del_snapshot(ssh2, dir2name, oldsnapname)
 
 # run find in a directory to dump its content
 def get_find_proc(ssh, dirname):
