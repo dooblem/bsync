@@ -269,4 +269,4 @@ class TestMixed(TestBase):
 		self.assertFileContains(dir2, "b", 2)
 
 if __name__ == '__main__':
-    unittest.main()
+    unittest.main(verbosity=1.5)
