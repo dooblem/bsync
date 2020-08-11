@@ -496,11 +496,12 @@ def load_orig(ssh1,dir1name, ssh2,dir2name):
 		inode,path,type,date,size,perms,rec = record
 
 		if not ignorepath(path, ignores):
-			#path not in orig: can happen if using ignore, then removing ignore, path will be considered as new
+			# path not in orig: can happen if using ignore, then removing ignore, path will be considered as new
 			if path in orig:
 				origfile = orig[path]
 				if origfile.type != type or origfile.date != date or origfile.size != size or origfile.perms != perms:
-					sys.exit("Error: difference in snaps for path: "+tostr(path)) 
+					# causing conflict for this path on both sides (better than reporting snapshot corruption)
+					origfile.date = -1
 
 				origfile.i2 = inode #set the second inode
 				origfile.r2 = rec #set the second record
