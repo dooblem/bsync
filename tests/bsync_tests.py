@@ -1,28 +1,52 @@
 import unittest, tempfile, os, subprocess, shutil
+import inspect
 
 dir1 = "dir1"
 dir2 = "dir2"
 
+def unittest_verbosity():
+	"""Return the verbosity setting of the currently running unittest
+	   program, or 0 if none is running.
+	   (https://stackoverflow.com/a/32883243/1259360)
+	"""
+	frame = inspect.currentframe()
+	while frame:
+		self = frame.f_locals.get('self')
+		if isinstance(self, unittest.TestProgram):
+			return self.verbosity
+		frame = frame.f_back
+	return 0
+
 class TestBase(unittest.TestCase):
 
 	def setUp(self):
+		self._verbosity = unittest_verbosity()
 		self._tempdir = tempfile.mkdtemp()
 		self.dir1 = os.path.join(self._tempdir, dir1)
 		self.dir2 = os.path.join(self._tempdir, dir2)
 		os.mkdir(self.dir1)
 		os.mkdir(self.dir2)
 		self.counter = 0
-	
+
 	def tearDown(self):
 		shutil.rmtree(self._tempdir)
 		pass
 
 	def bsync(self, args):
-		with subprocess.Popen(["bsync"]+args+[self.dir1, self.dir2], shell=True, stdout=subprocess.PIPE) as proc:
+		verbArg = []
+		if self._verbosity >= 2:
+			print('Executing:\n  bsync %s "%s" "%s"' % (' '.join(args), self.dir1, self.dir2))
+			verbArg = ["-v"]
+		with subprocess.Popen(["bsync"]+verbArg+args+[self.dir1, self.dir2], shell=True, stdout=subprocess.PIPE) as proc:
 			fd = proc.stdout
 			output = fd.read()
 			fd.close()
 			proc.wait()
+			if self._verbosity >= 2:
+				print("Output from bsync execution:")
+				print("vvvvvvvvvvvvvvvvvvvvvvvvvvvv")
+				print(output.decode('ascii'))
+				print("^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
 			self.assertEqual(proc.returncode, 0, "bsync failed with code %d" % proc.returncode)
 		return output
 
@@ -245,4 +269,4 @@ class TestMixed(TestBase):
 		self.assertFileContains(dir2, "b", 2)
 
 if __name__ == '__main__':
-    unittest.main(verbosity=2)
+    unittest.main()
