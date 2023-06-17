@@ -98,7 +98,7 @@ def printerr(s):
 
 def ssh_master_init(ssh):
 	import tempfile, atexit
-	tmpdir = tempfile.mkdtemp()
+	tmpdir = tempfile.mkdtemp(dir="/tmp")
 	ssh.sock = os.path.join(tmpdir, "bsync_%r@%h:%p")
 	try:
 		subprocess.check_call( ssh.getcmdlist()+["-fNM"] )
