@@ -128,7 +128,7 @@ Say, if I have a `dir1/.bsync-ignore` file with content:
 
 `dir1/path/to/ignoredir` (+content) and `dir1/path/to/ignorefile` will be ignored in the next bsync runs.
 
-The ignore file has to be very simple. No comments, just path prefixes.
+The ignore file has to be very simple. Lines that start with `#` are comments and are ignored.
 
 ### See also
 

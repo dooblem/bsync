@@ -301,7 +301,7 @@ def get_ignores(ignorefile, ssh,dirname):
 
 	ignores = set()
 	for l in lines:
-		if l != "":
+		if l != "" and not l.strip().startswith("#"):
 			if not l.endswith("/"): l+="/"
 			ignores.add(l)
 	return ignores
