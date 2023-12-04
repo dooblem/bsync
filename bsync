@@ -758,6 +758,8 @@ except getopt.GetoptError as err:
 verbose = check = ignoreperms = batch = False
 sshport = None
 sshargs = ""
+dir1name = None
+dir2name = None
 for o, a in opts:
 	if o == "-v":
 		verbose = True
@@ -774,12 +776,27 @@ for o, a in opts:
 	else:
 		assert False, "unhandled option"
 
-if len(args) != 2:
+if len(args) == 0 and os.path.exists('.bsync-remote'):
+	with open('.bsync-remote','r') as fd:
+		dir1name = fd.readline().rstrip('\n')
+		dir2name = './'
+elif len(args) == 1:
+	dir1name = args[0]
+	dir1name = os.path.join(dir1name, '')
+	dir2name = os.path.basename(os.path.dirname(dir1name))
+	if not os.path.exists(dir2name):
+		os.mkdir(dir2name)
+	dir2name = os.path.join(dir2name, '')
+elif len(args) == 2:
+	dir1name = os.path.join(args[0], '')
+	dir2name = os.path.join(args[1], '')
+else:
 	usage()
 	sys.exit(2)
 
-dir1name = args[0]
-dir2name = args[1]
+
+dir1namefull = dir1name
+dir2namefull = dir2name
 
 # get ssh connection
 ssh = ssh1 = ssh2 = None
@@ -1021,8 +1038,8 @@ print_actions(2, mkdir2,moves2,rm2,rmdirs2, copy12,sync12)
 print_actions(1, mkdir1,moves1,rm1,rmdirs1, copy21,sync21)
 
 print()
-print("Todo in "+args[0]+": "+get_dir_summary(mkdir1,moves1,rm1,rmdirs1, copy21,sync21))
-print("Todo in "+args[1]+": "+get_dir_summary(mkdir2,moves2,rm2,rmdirs2, copy12,sync12))
+print("Todo in "+dir1namefull+": "+get_dir_summary(mkdir1,moves1,rm1,rmdirs1, copy21,sync21))
+print("Todo in "+dir2namefull+": "+get_dir_summary(mkdir2,moves2,rm2,rmdirs2, copy12,sync12))
 
 resp = "none"
 if batch: resp = "y"
@@ -1048,5 +1065,9 @@ apply_rsync_actions(ssh2,dir2name,ssh1,dir1name, copy21 + sync21)
 if check: rsync_check(ssh1,dir1name, ssh2,dir2name)
 
 make_snapshots(ssh1,dir1name, ssh2,dir2name, snapname)
+
+if not ssh2:
+	with open(dir2name+'.bsync-remote','w') as fd:
+		fd.write(dir1namefull+'\n')
 
 print("Done!")
