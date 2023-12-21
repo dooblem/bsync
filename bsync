@@ -132,7 +132,7 @@ findformat = "%i\\0%P\\0%y\\0%T@\\0%s\\0%#m\\0"
 def ssh_shell_init(ssh):
 	return subprocess.Popen(ssh.getcmdlist()+["sh -e"], stdin=subprocess.PIPE)
 
-def rsync_init(sshSrc,dirnameSrc, sshDst,dirnameDst):
+def rsync_init(sshSrc,dirnameSrc, sshDst,dirnameDst,rsyncargs):
 	#rsync ssh/dir1 --> local/dir2
 	#rsync local/dir1 --> ssh/dir2
 	#
@@ -147,7 +147,7 @@ def rsync_init(sshSrc,dirnameSrc, sshDst,dirnameDst):
 		cmdlist.remove(ssh.userhost)
 		args.append("-e "+joinargs(cmdlist))
 
-	return subprocess.Popen(["rsync"]+args+[rsyncsrc, rsyncdst], stdin=subprocess.PIPE)
+	return subprocess.Popen(["rsync"]+args+rsyncargs+[rsyncsrc, rsyncdst], stdin=subprocess.PIPE)
 
 def rsync_check_install(ssh):
 	remote_check = ""
@@ -692,11 +692,11 @@ def apply_small_actions(ssh,dirname, mkdirs,moves,rm,rmdirs):
 			sys.exit("Error in shell process.")
 
 ##### actions involving an rsync transfer
-def apply_rsync_actions(sshSrc,dirnameSrc, sshDst,dirnameDst, pathlist):
+def apply_rsync_actions(sshSrc,dirnameSrc, sshDst,dirnameDst, pathlist,rsyncargs):
 	if len(pathlist) == 0:
 		return
 
-	rsyncproc = rsync_init(sshSrc,dirnameSrc, sshDst,dirnameDst)
+	rsyncproc = rsync_init(sshSrc,dirnameSrc, sshDst,dirnameDst,rsyncargs)
 
 	# finish with copies and sync
 	for path in pathlist:
@@ -738,18 +738,19 @@ def myinput(prompt):
 def usage():
 	usage = "Usage: bsync [options] DIR1 DIR2\n\n"
 	usage+= "	DIR can be user@sshserver:DIR\n"
-	usage+= "	-v		Verbose\n"
-	usage+= "	-i		Ignore permissions\n"
-	usage+= "	-b		Batch mode (exit on conflict)\n"
-	usage+= "	-p PORT		Port for SSH\n"
-	usage+= "	-o SSHARGS	Custom options for SSH\n"
+	usage+= "	-v			Verbose\n"
+	usage+= "	-i			Ignore permissions\n"
+	usage+= "	-b			Batch mode (exit on conflict)\n"
+	usage+= "	-p PORT			Port for SSH\n"
+	usage+= "	-o SSHARGS		Custom options for SSH\n"
+	usage+= "	--rsync-args=ARGS	WARNING some rsync arguments may break syncing\n"
 	printerr(usage)
 
 #####################################################
 
 #### process commandline args
 try:
-	opts, args = getopt.gnu_getopt(sys.argv[1:], "vcibp:o:")
+	opts, args = getopt.gnu_getopt(sys.argv[1:], "vcibp:o:", ["rsync-args="])
 except getopt.GetoptError as err:
 	printerr(err)
 	usage()
@@ -758,6 +759,7 @@ except getopt.GetoptError as err:
 verbose = check = ignoreperms = batch = False
 sshport = None
 sshargs = ""
+rsyncargs = []
 for o, a in opts:
 	if o == "-v":
 		verbose = True
@@ -769,6 +771,8 @@ for o, a in opts:
 		sshport = a
 	elif o == "-o":
 		sshargs = a
+	elif o == "--rsync-args":
+		rsyncargs = a.split()
 	elif o == "-b":
 		batch = True
 	else:
@@ -1039,11 +1043,11 @@ print("Applying actions...")
 
 printv("Applying actions in dir2...")
 apply_small_actions(ssh2,dir2name, mkdir2,moves2,rm2,rmdirs2)
-apply_rsync_actions(ssh1,dir1name,ssh2,dir2name, copy12 + sync12)
+apply_rsync_actions(ssh1,dir1name,ssh2,dir2name, copy12 + sync12,rsyncargs)
 
 printv("Applying actions in dir1...")
 apply_small_actions(ssh1,dir1name, mkdir1,moves1,rm1,rmdirs1)
-apply_rsync_actions(ssh2,dir2name,ssh1,dir1name, copy21 + sync21)
+apply_rsync_actions(ssh2,dir2name,ssh1,dir1name, copy21 + sync21,rsyncargs)
 
 if check: rsync_check(ssh1,dir1name, ssh2,dir2name)
 
