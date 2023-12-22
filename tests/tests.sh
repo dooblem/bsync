@@ -146,6 +146,31 @@ test_exotic_filename_ssh() {
 	ssh $sshargs $SSHLOGIN "find $SSHDIR | grep exotic:"
 }
 
+test_ignore_files() {
+	echo "**test_ignore_files**"
+  mkdir $DIR1/ignore
+  touch $DIR1/ignore/afile
+  touch $DIR1/ignore/exactfile
+  touch $DIR1/ignore/otherfile
+  mkdir $DIR1/ignore2
+  touch $DIR1/ignore2/otherfile
+  echo '# Ignore files named otherfile no matter what directory they are in' > $DIR1/.bsync-ignore
+  echo '**/otherfile' >> $DIR1/.bsync-ignore
+  echo '# Ignore exact file match (old style matches)' >> $DIR1/.bsync-ignore
+  echo 'ignore/exactfile' >> $DIR1/.bsync-ignore
+	yes | $BSYNC $DIR1 $DIR2
+	[ ! -f $DIR2/ignore/otherfile ]
+	[ ! -f $DIR2/ignore/exactfile ]
+	[ ! -f $DIR2/ignore2/otherfile ]
+  [ -f $DIR2/ignore/afile ]
+  rm -f $DIR1/.bsync-ignore
+  rm -rf $DIR1/ignore/
+  rm -rf $DIR1/ignore2/
+	rm -rf $DIR2/ignore/
+	rm -rf $DIR2/ignore2/
+}
+
+
 ########
 
 test_no_args
@@ -176,6 +201,7 @@ test_non_interactive
 test_non_interactive_exit
 
 test_symlinks
+test_ignore_files
 
 test_ssh_fail_noremotedir
 

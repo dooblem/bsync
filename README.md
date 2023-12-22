@@ -119,8 +119,35 @@ A sample run with a conflict: file deleted one side and updated the other side.
 .bsync-ignore files
 -------------------
 
-You can add directories/files paths in a `.bsync-ignore` file located at the root of a sync directory.
-Every path in it will be ignored when syncing with other dirs. You can also see that as a mask for the synchronization.
+You can add directories/file paths in a `.bsync-ignore` file located at the root of a sync directory.
+It uses Unix-style pattern matching:
+
+| Pattern | Meaning                          |
+|---------|----------------------------------|
+| *       | matches everything               |
+| ?       | matches any single character     |
+| [seq]   | matches any character in seq     |
+| [!seq]  | matches any character not in seq |
+
+For example:
+```
+# Ignore a directory and all its contents
+path/to/ignoredir/
+
+# Ignore a specific file
+path/to/ignorefile
+
+# Ignore a file with a specific name in any direcotory
+*.DS_Store 
+
+# Ignore certain files in any directory under a specific path
+path/*/.DS_Store
+
+# Ignore a file in any directory EXCEPT the root
+*/.DS_Store
+```
+
+You can also see that as a mask for the synchronization.
 
 Say, if I have a `dir1/.bsync-ignore` file with content:
 
@@ -129,7 +156,7 @@ Say, if I have a `dir1/.bsync-ignore` file with content:
 
 `dir1/path/to/ignoredir` (+content) and `dir1/path/to/ignorefile` will be ignored in the next bsync runs.
 
-The ignore file has to be very simple. No comments, just path prefixes.
+The ignore file has to be very simple. Lines that start with `#` are comments and are ignored.
 
 ### See also
 
